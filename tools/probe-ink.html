@@ -8,33 +8,34 @@
   :root { --paper:#e8ebec; --ink:#12181b; --dim:#7d8a8d; --rule:#c9d0d2; --bad:#b23a1a; --ok:#2f6b4f; }
   * { margin:0; padding:0; box-sizing:border-box; }
   body {
-    background:var(--paper); color:var(--ink); padding:24px 28px 80px;
-    font:12px/1.6 ui-monospace, Menlo, monospace; letter-spacing:.06em;
+    background:var(--paper); color:var(--ink); padding:22px 26px 80px;
+    font:12px/1.6 ui-monospace, Menlo, monospace; letter-spacing:.05em;
   }
   h1 { font-size:12px; font-weight:400; letter-spacing:.26em; text-transform:uppercase; margin-bottom:4px; }
-  .sub { color:var(--dim); font-size:10px; letter-spacing:.14em; margin-bottom:18px; max-width:74ch; text-transform:none; letter-spacing:.06em; }
-  table { border-collapse:collapse; margin-bottom:22px; }
+  .sub { color:var(--dim); font-size:10.5px; max-width:88ch; margin-bottom:16px; }
+  table { border-collapse:collapse; margin-bottom:20px; }
   th, td { text-align:right; padding:3px 12px 3px 0; font-variant-numeric:tabular-nums; }
-  th { color:var(--dim); font-weight:400; text-align:right; border-bottom:1px solid var(--rule); }
-  td:first-child, th:first-child { text-align:left; padding-right:28px; }
+  th { color:var(--dim); font-weight:400; border-bottom:1px solid var(--rule); }
+  td:first-child, th:first-child { text-align:left; padding-right:26px; }
   tr.sep td { border-top:1px solid var(--rule); }
   .note { color:var(--dim); }
   .off { color:var(--bad); }
   .ok { color:var(--ok); }
-  h2 { font-size:10px; font-weight:400; letter-spacing:.24em; color:var(--dim); text-transform:uppercase; margin:22px 0 8px; }
+  h2 { font-size:10px; font-weight:400; letter-spacing:.24em; color:var(--dim); text-transform:uppercase; margin:20px 0 8px; }
+  .row { display:flex; flex-wrap:wrap; gap:12px; }
+  .cell { border:1px solid var(--rule); background:#fff; }
   canvas { display:block; }
-  .row { display:flex; flex-wrap:wrap; gap:14px; margin-top:6px; }
-  .cell { border:1px solid var(--rule); }
 </style>
 </head>
 <body>
 
 <h1>Ink probe</h1>
 <p class="sub">
-  Generated glyphs, measured the same way the reference figures were, and put
-  beside the reference values. Everything is a fraction of the ring radius.
-  &ldquo;ref&rdquo; is the median across ten reference logograms
-  (<code>review/measure4.py</code>, <code>measure6.py</code>).
+  Sixty generated logograms, measured the way the reference frames were, against
+  the reference <em>range</em> from all 38 (not a target value — the corpus varies
+  too much for a single number to mean anything: heavy coverage alone runs from
+  14% to 83%).
+  All widths are fractions of the ring radius.
 </p>
 
 <div id="out"></div>
@@ -50,86 +51,84 @@ for (let i = 0; i < N; i++) glyphs.push(makeRingGlyph((1013904223 + i * 26544357
 
 const pct = (a, p) => {
   if (!a.length) return 0;
-  const s = [...a].sort((x, y) => x - y);
+  const s = Array.from(a).sort((x, y) => x - y);
   return s[Math.min(s.length - 1, Math.floor(p * s.length))];
 };
 const med = (a) => pct(a, 0.5);
 
-/* ---- stroke width, doubling the half-widths that the generator works in --- */
-const full = [];
-let gap = 0, tot = 0, heavy = 0;
+/* ---- the mark around the circle ---------------------------------------- */
+const ringW = [];        // full width of the bare circle, /R
+const peakW = [];        // full width at the heaviest point, /R
+const ratio = [];
+const covered = [];      // fraction of the circle that carries a blot
+const complete = [];     // fraction of the circle with any ink at all
+const blotN = [];
+
 for (const g of glyphs) {
-  for (let i = 0; i < g.widths.length; i++) {
-    const w = g.widths[i] * 2;
-    tot++;
-    if (w < g.hairline * 0.55) { gap++; continue; }
-    full.push(w);
-    if (w > 0.15) heavy++;
+  const full = Array.from(g.widths, (w) => w * 2);
+  ringW.push(g.ringHalf * 2);
+  peakW.push(g.peak * 2);
+  ratio.push(g.peak / g.ringHalf);
+  let heavy = 0, ink = 0;
+  for (const w of full) {
+    if (w > g.ringHalf * 4.4) heavy++;              // > 2.2x the ring, full width
+    if (w > g.ringHalf * 0.2) ink++;
   }
+  covered.push(heavy / full.length);
+  complete.push(ink / full.length);
+  blotN.push(g.blots.length);
 }
 
-/* ---- offshoots --------------------------------------------------------- */
-const filReach = [];
-const filAll = [];
-let filPer = [];
+/* ---- the filaments ------------------------------------------------------ */
+const reach = [];
+const filPer = [];
 for (const g of glyphs) {
-  filPer.push(g.filaments.filter((f) => f.reach > 0.2).length);
-  for (const f of g.filaments) {
-    filAll.push(f.reach);
-    /* the reference percentiles were measured over components that already
-       reached past 1.2R, so only filaments past 0.2 belong in the comparison —
-       otherwise adding short fringe filaments would appear to shorten the
-       long ones */
-    if (f.reach > 0.2) filReach.push(f.reach);
-  }
+  filPer.push(g.filaments.length);
+  for (const f of g.filaments) reach.push(f.reach);
 }
 const specPer = glyphs.map((g) => g.specks.length);
-const specR = [];
-for (const g of glyphs) for (const s of g.specks) specR.push(s.r);
 
-/* [label, generated, refMin, refMedian, refMax, unit]
-   Compared against the RANGE, not the median. The reference set is ten very
-   different logograms and a single number would be misleading: heavy fraction
-   alone runs from 7% to 47% across them, so a generator producing 36% is
-   correct and a generator producing 24% is only median-correct. */
+/* [label, value, refLow, refMedian, refHigh, unit]
+   Reference figures measured with a distance transform over all 38 frames —
+   see review/measure9.py. The distance transform is essential: measuring along
+   rays counts a spike as part of whatever it touches, and that single artefact
+   is what produced every wrong number this project has had. */
 const rows = [
-  ['stroke  thin (p10 of inked)', med(full.filter((w) => w < 0.08)), 0.011, 0.043, 0.060, ''],
-  ['stroke  p50', pct(full, 0.50), 0.049, 0.072, 0.132, ''],
-  ['stroke  p75', pct(full, 0.75), 0.084, 0.147, 0.370, ''],
-  ['stroke  p90', pct(full, 0.90), 0.127, 0.226, 0.495, ''],
-  ['stroke  p99', pct(full, 0.99), 0.259, 0.379, 0.609, ''],
-  ['stroke  max', pct(full, 1.0), 0.333, 0.441, 0.816, ''],
+  ['ring, full width',            med(ringW) * 1000, 16, 35, 43, '\u2030'],
+  ['ring, thinnest image',        pct(ringW, 0) * 1000, 16, 16, 43, '\u2030'],
+  ['heaviest point, full width',  med(peakW), 0.196, 0.243, 0.390, ''],
+  ['blot peak / ring',            med(ratio), 6.2, 12.9, 21.0, ''],
+  ['blots per glyph',             med(blotN), 1, 2, 3, ''],
+  ['circle carrying a blot',      med(covered) * 100, 14, 49, 83, '%'],
+  ['circle complete',             med(complete) * 100, 87, 93, 99, '%'],
   ['SEP'],
-  ['gap % of circle', gap / tot * 100, 0.0, 6.1, 31.4, '%'],
-  ['heavy % (>0.15, inked)', heavy / Math.max(1, full.length) * 100, 7.1, 24.1, 47.1, '%'],
+  ['filaments per glyph',         med(filPer), 20, 40, 64, ''],
+  ['filament reach p50',          med(reach), 0.06, 0.11, 0.20, ''],
+  ['filament reach p90',          pct(reach, 0.9), 0.12, 0.24, 0.42, ''],
+  ['filament reach max',          pct(reach, 1), 0.2, 0.4, 0.6, ''],
   ['SEP'],
-  ['filaments > 0.2R', filPer.reduce((a, b) => a + b, 0) / N, 9, 16, 43, ''],
-  ['filaments total', filAll.length / N, 0, 0, 999, ''],
-  ['filament reach p50', med(filReach), 0.184, 0.235, 0.348, ''],
-  ['filament reach p90', pct(filReach, 0.90), 0.258, 0.361, 0.615, ''],
-  ['filament reach max', pct(filReach, 1.0), 0.314, 0.478, 0.699, ''],
-  ['SEP'],
-  ['specks per glyph', specPer.reduce((a, b) => a + b, 0) / N, 15, 56, 201, ''],
-  ['speck diameter', med(specR) * 2, 0.009, 0.011, 0.014, ''],
+  ['specks per glyph',            med(specPer), 15, 56, 201, ''],
 ];
 
-let html = `<table><tr><th>quantity</th><th>reference min</th><th>med</th><th>max</th>`
-         + `<th>generated</th><th></th></tr>`;
+let html = '<table><tr><th>quantity</th><th>ref low</th><th>med</th><th>high</th>'
+         + '<th>generated</th><th></th></tr>';
 for (const r of rows) {
-  if (r[0] === 'SEP') { html += `<tr class="sep"><td colspan="6"></td></tr>`; continue; }
+  if (r[0] === 'SEP') { html += '<tr class="sep"><td colspan="6"></td></tr>'; continue; }
   const [, gen, lo, mid, hi, unit = ''] = r;
   const bad = gen < lo || gen > hi;
+  const f = (v) => (unit === '\u2030' ? (v / 1000).toFixed(4) : v.toFixed(unit === '%' ? 1 : 3));
   html += `<tr><td>${r[0]}</td>`
-        + `<td class="note">${lo.toFixed(3)}${unit}</td>`
-        + `<td class="note">${mid.toFixed(3)}${unit}</td>`
-        + `<td class="note">${hi.toFixed(3)}${unit}</td>`
-        + `<td class="${bad ? 'off' : 'ok'}">${gen.toFixed(3)}${unit}</td>`
+        + `<td class="note">${f(lo)}${unit === '\u2030' ? '' : unit}</td>`
+        + `<td class="note">${f(mid)}${unit === '\u2030' ? '' : unit}</td>`
+        + `<td class="note">${f(hi)}${unit === '\u2030' ? '' : unit}</td>`
+        + `<td class="${bad ? 'off' : 'ok'}">${f(gen)}${unit === '\u2030' ? '' : unit}</td>`
         + `<td class="${bad ? 'off' : 'ok'}">${bad ? 'out' : ''}</td></tr>`;
 }
-html += `</table>`;
+html += '</table>';
+html += '<p class="sub">Ring and heaviest-point widths are shown as fractions of the '
+      + 'ring radius (0.016 means 0.016 R across).</p>';
 document.getElementById('out').innerHTML = html;
 
-/* ---- a few samples, the same scale and colour as compare.html ------------- */
 const row = document.getElementById('row');
 const CELL = 210;
 for (const g of glyphs.slice(0, 6)) {
@@ -139,12 +138,10 @@ for (const g of glyphs.slice(0, 6)) {
   cv.style.width = CELL + 'px'; cv.style.height = CELL + 'px';
   const ctx = cv.getContext('2d');
   ctx.scale(dpr, dpr);
-  ctx.fillStyle = '#e8ebec';
-  ctx.fillRect(0, 0, CELL, CELL);
-  const R = CELL * 0.40;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, CELL, CELL);
   ctx.save();
   ctx.translate(CELL / 2, CELL / 2);
-  ctx.scale(R, R);
+  ctx.scale(CELL * 0.40, CELL * 0.40);
   for (const op of g.ops) if (!op.dryOnly) op.draw(ctx);
   ctx.restore();
   const box = document.createElement('div');

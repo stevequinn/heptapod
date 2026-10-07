@@ -1,29 +1,40 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    The offshoots.
 
-   The filaments that leave a wet mass, and the spatter thrown with them. These
-   are the most reliably-got-wrong part of a logogram, and every wrong guess
-   here has been a plausible one, so the measurements are worth writing down
-   before the code:
+   The filaments that leave a wet blot, and the spatter thrown with them.
 
-     length         0.34 R at the median, 0.53 at p90, 0.80 at the maximum,
-                    measured from the ring outward. They are LONG.
-     cross-section  0.032 R at the root — about *hairline* weight. Not a
-                    fraction of the mass, which is the tempting assumption and
-                    makes them five times too heavy.
-     direction      median 41 degrees off the outward radial, p10 67, p90 20.
-                    Near-isotropic with a radial lean — a splash, not a comb and
-                    not a starburst.
-     count          about 11 per logogram reach past 1.2 R; range 2 to 35.
-     profile        slow taper to a small rounded cap: fitting the measured
-                    cross-section gives w(u) = w0 * (0.18 + 0.82 (1-u)^0.42).
-                    At low resolution the tips look *clubbed*, and that reading
-                    is an artefact of downscaling — measuring the profile along
-                    each filament shows it falling monotonically. Worth knowing
-                    because the clubbed reading survives looking at the images
-                    and only the numbers kill it.
-     spatter        about 56 detached dots, each 0.011 R across, ~1% of the ink
-                    area, clustered within about 1.5 R of the centre.
+   The rule that matters most here, and the one that was wrong for a long time:
+
+     spikes leave BLOTS. Never the thin circle.
+
+   That is true of all 38 reference frames without exception, and it is obvious
+   the moment the whole set is looked at in one place — which is why the review
+   page has a view for exactly that. The failure mode is subtle in code: emit
+   from "the blot's arc" and a blot whose profile has tapered to almost nothing
+   at its own edge still emits, so filaments sprout from places where the ink is
+   hairline thin and the picture reads as a hairy circle rather than as a
+   splashed one. Emission is therefore gated on the *local blot weight*, not on
+   being nominally inside a blot's arc.
+
+   The rest of it, measured:
+
+     length         0.09 R at the median and 0.24 at p90, measured with a
+                    distance transform so that a spike lying along a ray cannot
+                    inflate itself. They are SHORT. Earlier estimates of 0.34 to
+                    0.53 came from measuring rays, which counts a spike as part
+                    of whatever it touches.
+     cross-section  comparable to the ring itself, not to the blot they leave.
+                    Assuming they scale with the blot makes them several times
+                    too heavy, and it is a very natural assumption.
+     direction      near-isotropic with a slight outward lean — a splash, not a
+                    comb and not a starburst.
+     count          twenty to fifty per logogram, in clumps rather than evenly
+                    spaced.
+     profile        tapers to a *rounded* point. At low resolution the tips look
+                    clubbed; that reading is an artefact of downscaling, and it
+                    survives looking at the images — only measuring kills it.
+     spatter        detached dots clustered on the blots, about 1% of the ink by
+                    area.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { OFFSHOOT, SPATTER } from '../config.js';
@@ -34,53 +45,56 @@ import { TAU, fbm1, mulberry32, ri, rr } from '../lib/math.js';
 const SEGMENTS = 14;
 
 /**
- * Sample a mass's half-width at an arbitrary angle away from its centre.
- * Returns 0 outside the mass's arc.
+ * Sample a blot's half-width at an arbitrary angle away from its centre.
+ * Returns 0 outside the blot's arc.
  */
-function massWidthAt(mass, da) {
-  if (Math.abs(da) > mass.halfSpan) return 0;
-  const t = (da / mass.halfSpan + 1) * 0.5;
-  const k = Math.max(0, Math.min(mass.widths.length - 1,
-    Math.round(t * (mass.widths.length - 1))));
-  return mass.widths[k];
+function blotWidthAt(blot, da) {
+  if (Math.abs(da) > blot.halfSpan) return 0;
+  const t = (da / blot.halfSpan + 1) * 0.5;
+  const k = Math.max(0, Math.min(blot.widths.length - 1,
+    Math.round(t * (blot.widths.length - 1))));
+  return blot.widths[k];
 }
 
 /**
- * Filaments leaving the masses.
+ * Filaments leaving the blots.
  *
- * Roots are placed on the nominal ring and the mass is expected to cover them —
+ * Roots are placed on the nominal ring and the blot is expected to cover them —
  * both are the same black, so the root is invisible and the filament appears to
- * emerge from the blob. The drawn length is therefore the visible length plus
- * however much of the root the mass swallows, or every filament would come out
- * short by the width of the blob it is leaving.
+ * emerge from the blot. The drawn length is therefore the visible length plus
+ * however much of the root the blot swallows, or every filament would come out
+ * short by the width of the blot it is leaving.
+ *
+ * Emission is confined to blots *and* gated on the local blot weight, which are
+ * not the same thing: see the header.
  *
  * Geometry is built here, once, and never in `draw()`. `draw()` is re-executed
  * whenever a mark is rebuilt at a new scale, so anything random in there would
  * make a logogram change shape when the window resizes.
  *
- * @param {Array<{angle,halfSpan,widths,strength}>} masses
+ * @param {Array<{angle,halfSpan,widths,peak,strength}>} blots
  * @param {function} rng
- * @param {number} hairline
+ * @param {number} ringHalf
  * @param {number} seed
  * @returns {Array<{pts: Array<[number,number]>, ws: number[], reach: number}>}
  */
-export function filaments({ masses, rng, hairline, seed }) {
+export function filaments({ blots, rng, ringHalf, seed }) {
   const out = [];
-  if (!masses.length) return out;
+  if (!blots.length) return out;
 
-  /* Share the population out by mass weight, so a heavy deposit throws more
+  /* Share the population out by blot weight, so a heavy blot throws more
    * than a light one, then clamp the total. */
-  const total = masses.reduce((s, m) => s + m.strength, 0);
+  const total = blots.reduce((s, m) => s + m.strength, 0);
   const want = Math.round(rr(rng, OFFSHOOT.count[0], OFFSHOOT.count[1]));
 
-  for (const mass of masses) {
-    const share = Math.max(0, want * (mass.strength / total));
-    const n = Math.max(mass.strength > 0.9 ? 2 : 0, Math.round(share));
+  for (const blot of blots) {
+    const share = Math.max(0, want * (blot.strength / total));
+    const n = Math.max(blot.strength > 0.9 ? 2 : 0, Math.round(share));
 
-    const wob = fbm1(mulberry32((seed + Math.round(mass.angle * 1e6)) >>> 0), 2);
+    const wob = fbm1(mulberry32((seed + Math.round(blot.angle * 1e6)) >>> 0), 2);
     const ph = rng() * 90;
 
-    /* Clumps: a few origins along the mass, each with its own direction, and
+    /* Clumps: a few origins along the blot, each with its own direction, and
        the filaments grouped around them. This is what the references' fringes
        actually look like — bunches fanning from near the same point, with bare
        stretches between — and it is the difference between a splash and a
@@ -97,8 +111,12 @@ export function filaments({ masses, rng, hairline, seed }) {
     for (let i = 0; i < n; i++) {
       const cl = clumps[Math.floor(rng() * clumps.length)];
       const at = Math.max(-1, Math.min(1, cl.at + (rng() + rng() - 1) * OFFSHOOT.clumpSpread));
-      const a0 = mass.angle + at * mass.halfSpan * rr(rng, OFFSHOOT.outlet[0], OFFSHOOT.outlet[1]);
-      const localW = massWidthAt(mass, a0 - mass.angle);
+      const a0 = blot.angle + at * blot.halfSpan * rr(rng, OFFSHOOT.outlet[0], OFFSHOOT.outlet[1]);
+      const localW = blotWidthAt(blot, a0 - blot.angle);
+      /* The gate. A blot's profile falls to nothing at the ends of its own arc,
+         so "inside the arc" is not the same as "on thick ink" — and filaments
+         emitted from the thin ends are exactly the hairy-circle failure. */
+      if (localW < blot.peak * OFFSHOOT.minLoad) continue;
 
       /* Direction: the clump's own direction plus a fan, which reproduces the
        * measured distribution while keeping a bunch coherent. */
@@ -109,17 +127,17 @@ export function filaments({ masses, rng, hairline, seed }) {
       const skew = Math.pow(rng(), OFFSHOOT.lengthSkew);
       const visible = (OFFSHOOT.length[0]
                     + (OFFSHOOT.length[1] - OFFSHOOT.length[0]) * skew)
-                    * (0.72 + 0.42 * (mass.strength / 1.3))
+                    * (0.72 + 0.42 * (blot.strength / 1.3))
                     // a few long outliers, as every reference has — capped, so
                     // that the longest base filaments cannot overshoot
                     * (rng() < 0.08 ? rr(rng, 1.5, 2.1) : 1);
       const capped = Math.min(visible, OFFSHOOT.maxLength);
-      // add back what the mass will swallow, so `visible` is what shows
+      // add back what the blot will swallow, so `visible` is what shows
       const cover = localW * 0.5 * Math.abs(cosD);
       const len = capped + cover;
 
-      const w0 = hairline * rr(rng, OFFSHOOT.width[0], OFFSHOOT.width[1])
-               * (0.75 + 0.5 * mass.strength);
+      const w0 = ringHalf * rr(rng, OFFSHOOT.width[0], OFFSHOOT.width[1])
+               * (0.75 + 0.5 * blot.strength);
       const bow = rr(rng, OFFSHOOT.bow[0], OFFSHOOT.bow[1]) * (rng() < 0.5 ? -1 : 1);
 
       const dx = Math.cos(phi), dy = Math.sin(phi);
@@ -184,23 +202,23 @@ export function drawFilaments(ctx, list) {
 /**
  * Spatter: detached dots thrown where the ink flicked.
  *
- * Clustered at the mass and thinning outward rather than spread evenly over the
+ * Clustered at the blot and thinning outward rather than spread evenly over the
  * frame — the references have real speckle, but all of it near the blobs. A
  * third are stretched into teardrops, which is what a dot thrown through air
  * looks like.
  *
  * @returns {Array<{x,y,r,ry,rot}>}
  */
-export function specks({ masses, rng, hairline }) {
+export function specks({ blots, rng }) {
   const out = [];
-  for (const mass of masses) {
+  for (const blot of blots) {
     const n = ri(rng, SPATTER.perMass[0], SPATTER.perMass[1]);
     for (let i = 0; i < n; i++) {
-      /* An angular position on or just off the mass, and a radial distance that
+      /* An angular position on or just off the blot, and a radial distance that
        * is mostly small — a power curve keeps the cloud tight. */
-      const a = mass.angle + rr(rng, -1.0, 1.0) * mass.halfSpan * 1.35;
+      const a = blot.angle + rr(rng, -1.0, 1.0) * blot.halfSpan * 1.35;
       const d = 1 + Math.pow(rng(), 1.7) * SPATTER.reach[1] * (rng() < 0.5 ? 1 : -1);
-      const r = rr(rng, SPATTER.size[0], SPATTER.size[1]) * (0.85 + 0.35 * mass.strength);
+      const r = rr(rng, SPATTER.size[0], SPATTER.size[1]) * (0.85 + 0.35 * blot.strength);
       const stretched = rng() < SPATTER.stretched;
       out.push({
         x: Math.cos(a) * d,
@@ -211,7 +229,6 @@ export function specks({ masses, rng, hairline }) {
       });
     }
   }
-  void hairline;
   return out;
 }
 

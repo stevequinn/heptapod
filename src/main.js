@@ -6,10 +6,10 @@
      config.js         every tunable
      lib/math.js       noise, easing, the event bus
      ca/               Wolfram's cellular automaton — the experiment, not the
-                       render path; see ink/mass.js for why
+                       render path; see ink/blot.js for why
      ink/glyph.js      one logogram, as a list of weighted draw ops
-     ink/mass.js       the ink blob the stroke swells into
-     ink/offshoots.js  the filaments and spatter leaving a mass
+     ink/blot.js       the ink blot dropped on the ring
+     ink/offshoots.js  the filaments and spatter leaving a blot
      ink/writer.js     the ink buffer and the life of each inscription
      unwrap/           the twelve-section analytic view
      scene/            WebGL: fog, glass, bloom, grade
@@ -238,7 +238,7 @@ function report() {
     `  ${marks || '—'}\n` +
     `ink ${ink.canvas.width}x${ink.canvas.height}  css ${stage.width}x${stage.height}\n` +
     `ink coverage ${nz} sampled, peak alpha ${peak}, mean ${nz ? (sum / nz).toFixed(0) : 0}\n` +
-    `masses ${ink.marks[0]?.glyph.masses.length ?? '—'}  ·  ` +
+    `blots ${ink.marks[0]?.glyph.blots.length ?? '—'}  ·  ` +
     `filaments ${ink.marks[0]?.glyph.filaments.length ?? '—'}  ·  ` +
     `specks ${ink.marks[0]?.glyph.specks.length ?? '—'}`,
   );

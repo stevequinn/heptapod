@@ -98,15 +98,15 @@ It went through two wrong jobs before being removed, and both were plausible:
    of spatter, on a thin wire. It was recognisably wrong on sight.
 2. **Measuring growth into a width** — how deep does the ink reach at each
    angle around a deposit, used as the stroke's half-width. This was better
-   because it is invisible, and that is exactly the problem: the mass became a
-   CA silhouette in disguise and read like one. A CA's perpendicular profile is
-   lumpy and scalloped where the reference masses are smooth tapered blades.
+   because it is invisible, and that is exactly the problem: the heavy regions
+   became a CA silhouette in disguise and read like one. A CA's perpendicular
+   profile is lumpy and scalloped where the reference blots are full-topped.
 
 The honest summary is that the automaton's output space and the logograms'
 appearance space do not overlap. What it was really providing was **variety**,
 and noise provides variety more cheaply, more controllably, and in units that
-can be measured against the target. So the mass is now modelled directly
-(`ink/mass.js`).
+can be measured against the target. So the blot is now modelled directly
+(`ink/blot.js`).
 
 The automaton remains in the repository, runnable, because it is the most
 interesting thing in Wolfram's notebooks and because deleting it would lose the
@@ -149,51 +149,85 @@ his hand-picked list was arbitrary. The layout is load-bearing.
 55–70% coverage within ten steps and keep going, which is why the notebook needs
 700 steps bounded by the image itself.
 
-### The reference figures, and what they actually show
+### What a logogram actually is
 
-Since the target is external to the code, the measurements belong in the README
-rather than only in the code comments. Everything below is a fraction of the
-ring radius R, measured by `review/measure*.py` over ten of the 3300px frames —
-which found the ring by hill-climbing the centre to maximise *angular coverage*,
-after two earlier attempts produced numbers that looked plausible and were
-nonsense (a centroid is not the ring centre when there are masses, and
-maximising histogram sharpness is degenerate — it found R = 27821 on a 1200px
-image).
+This took three attempts and the first two were both plausible, which is why it
+is worth stating as a picture rather than as parameters.
 
-| | min | median | max |
+A reference logogram is:
+
+    a thin circle, of near-constant weight, complete, drawn with an even hand
+  + one to three compact dense blots of ink dropped on it
+  + spikes, which leave the blots and nothing else
+  + spatter, clustered on the blots
+
+The two wrong models were:
+
+  1. **A stroke whose width grows to ten times the hairline and tapers.** This
+     reads as a glump stuck to a wire. The error was architectural and obvious
+     on sight.
+  2. **A stroke that swells gently into a tapered blade over 60 to 100 degrees
+     of arc**, with filaments leaving it. Much closer to right, and it survived
+     several rounds of measurement, because the *statistics* of a tapered blade
+     and of a thin circle with blots on it overlap almost completely. Both give
+     a median stroke around 1.7 times the thinnest part and a heavy tail.
+
+     What kills it is looking at all 38 frames in one place. The circle is
+     visibly a circle, of even weight, in every one of them; the heavy regions
+     are visibly separate things sitting on it; and the filaments leave the
+     heavy regions and never the circle. That last point is not a tendency. It
+     is true of all 38 without exception, and in the wrong model it comes out
+     wrong in a subtle way: a blot whose profile has tapered to almost nothing
+     at its own edge still emits, so spikes sprout from ink that is hairline
+     thin, and the picture reads as a hairy circle rather than a splashed one.
+     Emission is therefore gated on the *local blot weight*, not on being
+     nominally inside a blot's arc.
+
+### Measured, and the mistake that corrupted the measurements
+
+Two numbers matter more than the rest, and one of them was wrong for most of
+this project's life.
+
+**The ring is 0.016 to 0.043 R across**, and the thin end is much the most
+common. The figure this project used for months, 0.043 for the *half*-width, was
+derived from a screenshot at the very start and never re-derived — and every
+later measurement was normalised against it, so the error went everywhere. The
+ring it drew was two and a half times too heavy.
+
+Everything above was measured with a **distance transform**, and that is not an
+implementation detail. Every earlier attempt measured "how wide is the ink along
+this ray", and every one of them was corrupted by the same artefact: where a
+spike points outward, the ink is *contiguous* from the ring to the spike's tip,
+so a ray through it reports ring and spike together as one enormous thickness.
+That single artefact inflated the reported blot coverage to half the circle and
+the peak width to eleven times the ring, and it is why the numbers kept
+contradicting what the images plainly showed. A distance transform has no such
+failure mode: a spike is thin *regardless of how long it is*.
+
+| | low | median | high |
 |---|---|---|---|
-| hairline stroke, full width | 0.011 | 0.043 | 0.060 |
-| stroke p50 | 0.049 | 0.072 | 0.132 |
-| stroke p75 | 0.084 | 0.147 | 0.370 |
-| stroke p90 | 0.127 | 0.226 | 0.495 |
-| stroke p99 | 0.259 | 0.379 | 0.609 |
-| heaviest | 0.333 | 0.441 | 0.816 |
-| fraction of circle with no ink | 0% | 6% | 31% |
-| fraction heavier than 0.15 | 7% | 24% | 47% |
-| filaments past 1.2R | 9 | 16 | 43 |
-| filament reach p50 | 0.184 | 0.235 | 0.348 |
-| filament reach max | 0.314 | 0.478 | 0.699 |
-| spatter dots | 15 | 56 | 201 |
-| spatter dot diameter | 0.009 | 0.011 | 0.014 |
+| ring, full width | 0.016 R | 0.035 R | 0.043 R |
+| heaviest point, full width | 0.196 R | 0.243 R | 0.390 R |
+| blot peak / ring | 6x | 13x | 21x |
+| blots per logogram | 1 | 2 | 3 |
+| circle carrying a blot | 14% | 49% | 83% |
+| circle complete | 87% | 93% | 99% |
+| filaments per logogram | 20 | 40 | 64 |
+| filament reach, median | 0.06 R | 0.11 R | 0.20 R |
+| filament reach, longest | 0.20 R | 0.40 R | 0.60 R |
 
-These are **ranges, and they are wide** — the heavy fraction alone runs 7% to
-47%. Comparing a generator to the median would be a mistake: a generator
-producing 36% is right, and one producing exactly the median 24% is only median
-correct. `tools/probe-ink.html` therefore flags a value as out of range rather
-than as a delta from a target.
+These are **ranges, and they are wide** — coverage alone runs 14% to 83%. A
+generator matching the median exactly would be wrong; a generator whose output
+falls inside the range for every statistic is right. `tools/probe-ink.html`
+flags out-of-range rather than a delta from a target.
 
-Two findings from those measurements are worth calling out because both were
-got wrong by eye, repeatedly:
-
-- **The offshoots are about hairline weight and surprisingly long** — root
-  cross-section 0.032 R, reach 0.235 R at the median rising to 0.699. The
-  tempting assumption is that they scale with the mass they leave. They do not.
-- **The tips taper; they do not club.** At low resolution the ends look
-  clubbed, and that reading survives looking at the images — it only dies under
-  measurement. A cross-section profile taken along each filament falls
-  monotonically (tip over mid = 0.52), and the largest club ratio in the whole
-  set is 0.109, i.e. no filament in any frame is wider at its tip than at its
-  middle. The "club" is an artefact of downscaling.
+One more finding from those measurements, because it is the single thing that
+was most confidently got wrong by eye: **the filaments taper to a rounded
+point; they do not club.** At low resolution the tips look clubbed. That reading
+survives looking at the images — it only dies under measurement. A
+cross-section profile taken along each filament falls monotonically, and the
+largest club ratio anywhere in the corpus is 0.109, i.e. no filament in any
+frame is wider at its tip than at its middle.
 
 ### The polar unwrap
 
@@ -248,9 +282,9 @@ src/
                    (both retained as the experiment; not in the render path)
   ink/
     glyph.js       one logogram as a list of weighted draw ops
-    mass.js        the ink mass: one blob's width profile
-    stroke.js      the stroke: width profile, band, striation, dry texture
-    offshoots.js   the filaments and spatter leaving a mass
+    blot.js        one blot's width profile
+    stroke.js      the circle, and the band that draws it
+    offshoots.js   the filaments and spatter leaving a blot
     smoke.js       the interior ink haze
     writer.js      the ink buffer, and the life of each inscription
   unwrap/
@@ -272,11 +306,10 @@ be laid down by a limb rather than appearing whole. `ops` are plain closures
 over a 2D context, which is what lets the unwrap view reuse them unchanged
 through a warping proxy.
 
-**The order in `makeRingGlyph` matters.** The automaton runs *before* the band
-is built, because the band *is* the stroke and the stroke's weight is what the
-automaton measured. An earlier version drew the ring first and laid the
-deposits on afterwards, which is what forced a separate band and with it the
-glump-on-a-wire look.
+**The order in `makeRingGlyph` is: blots first, then the circle that carries
+them, then what leaves them.** An earlier version drew the ring first and laid
+the heavy regions on afterwards, which is what forced a separate band and with
+it the glump-on-a-wire look.
 
 **`tools/reference/compare.html`** is the other file worth knowing about. It is
 a dev tool, served by `npm run dev`, not a build entry.
@@ -306,7 +339,7 @@ For screenshots and tests. Glyphs are fully determined by their seed, so
 | `?unwrap` | start in the twelve-section view |
 | `?proof=18` | contact sheet of bare logograms, no scene, fog or grade |
 | `?seed=N` | override the opening glyph's seed |
-| `?debug` | frame timing, mark progress, ink coverage, mass and filament counts |
+| `?debug` | frame timing, mark progress, ink coverage, blot and filament counts |
 
 `?proof` shows the generator alone on flat ground. For judging likeness, use
 the comparison tool instead — see below.
@@ -328,10 +361,24 @@ npm run dev             # then open:
 # http://localhost:3000/tools/reference/compare.html
 ```
 
-A real logogram frame above, the generator's output for the seed below, paired
-in the same column at the same size. Query params for seeds, cell size and which
-frames to use; the controls write themselves back to the URL, so a frame you are
-happy with can be reproduced exactly.
+Four views, and the fourth is the one that matters most:
+
+| | |
+|---|---|
+| `interleave` | reference and generated alternately, so the eye judges species rather than detail |
+| `pairs` | reference stacked over generated, for weight and shape |
+| `refs` | all 38 reference frames as a set |
+| `gen` | generated only |
+
+**References-only is not a convenience, it is the tool.** Every wrong model this
+project has had was wrong in a way that survived being looked at one frame at a
+time and died when the whole set was seen together — the thin circle that is
+always there, the blots that sit on it, and the spikes that leave the blots and
+nothing else. Look at that view before changing anything.
+
+`threshold` puts the generated ink through the same hard cut the reference
+frames have had. Without it, anti-aliased edges are compared against hard ones
+and the generated ink reads as softer than it is.
 
 There is also **`tools/probe-ink.html`**, which is the other half of the loop:
 it generates sixty glyphs, measures them exactly the way the reference figures
@@ -361,12 +408,12 @@ wrong conclusions, each of which cost a rewrite:
   band on top of it reads as a glump stuck to a wire; that was an architectural
   error, not a parametric one, and no amount of tuning the band fixed it.
 - **what grows off the fat regions** — not one thing but two, and they were
-  conflated. A fringe of filaments in clumps along the mass, fanning outward.
+  conflated. A fringe of filaments in clumps along the blot, fanning outward.
   *And* separate spatter — round and teardrop dots, about 56 of them, about 1%
   of the ink by area. An earlier version had only the first and called the
   second "bristles".
 - **how heavy those filaments are** — about hairline weight, not a fraction of
-  the mass they leave. Assuming they scale with the mass makes them five times
+  the blot they leave. Assuming they scale with the blot makes them five times
   too heavy, and it is a very natural assumption to make.
 - **surface** — real ink over its own footprint is striated, with thin gaps
   running along the stroke where bristles did not touch. A uniformly filled
@@ -405,7 +452,7 @@ Scene and unwrap both hold 60fps.
 Drawing the band as longitudinal strips instead of one filled polygon multiplies
 the fill count by up to eight, and it is worth the cost: it is the difference
 between ink and a vector shape. It is not eight everywhere — the count follows
-the local width (see above), so a hairline is one fill and a mass is eight. The
+the local width (see above), so the circle is one fill and a blot is eight. The
 whole thing measures as under a millisecond of the 5ms.
 
 ---

@@ -9,21 +9,21 @@
    The structure is Wolfram's, and it is the one part of his notebooks that
    survives contact with the reference figures: sectionBreaking-01.nb divides a
    logogram into twelve angular wedges (sectionCount = 12), and this file
-   generates from that. The ink weight of the stroke, where its masses sit and
-   where it lifts off the glass are all described *per sector*, so each glyph's
+   generates from that. Where the blots sit, how heavy the circle runs and where
+   it lifts off the glass are all described *per sector*, so each glyph's
    identity is a profile around the circle. Hand-placing a few blobs, as an
    earlier version did, gives a similar-looking result with far less variety.
 
    What does NOT come from his notebooks is the ink itself. The automaton is
-   gone from this path entirely; mass.js explains why at length.
+   gone from this path entirely; blot.js explains why at length.
 
    Order matters below. The widths have to be known before the band is built,
-   because the band *is* the stroke, and the mass profile is the stroke's width.
+   because the band *is* the mark, and the blot profile is its width.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { GLYPH, MASS } from '../config.js';
+import { GLYPH, BLOT } from '../config.js';
 import { TAU, fbm1, angDiff, clamp, lerp, smoothstep, mulberry32, rr, ri } from '../lib/math.js';
-import { massProfile } from './mass.js';
+import { blotProfile } from './blot.js';
 import { filaments, specks, drawFilaments, drawSpecks } from './offshoots.js';
 import {
   ringProfile, ringBand, drawBandChunk, striations, dryTexture, drawDryTexture,
@@ -74,12 +74,12 @@ export function makeRingGlyph(seed) {
     return lerp(a0, a1, f * f * (3 - 2 * f));
   };
 
-  /* ---- where the masses sit ------------------------------------------- */
+  /* ---- where the blots sit -------------------------------------------- */
   /* At the profile's local maxima, at least `minApart` sectors apart. Taking
-     the global top-N instead would put two masses two sectors apart whenever
-     the noise has one broad hump, and two neighbouring masses just read as one
-     very thick patch. */
-  const wanted = ri(rng, GLYPH.deposits[0], GLYPH.deposits[1]);
+     the global top-N instead would put two blots two sectors apart whenever the
+     noise has one broad hump, and two neighbouring blots just read as one very
+     thick patch. */
+  const wanted = ri(rng, GLYPH.blots[0], GLYPH.blots[1]);
   const minApart = 3;
   const peaks = [];
   for (let s = 0; s < SECTORS; s++) {
@@ -106,34 +106,31 @@ export function makeRingGlyph(seed) {
     if (!chosen.includes(sec)) chosen.push(sec);
   }
 
-  const hairline = rr(rng, GLYPH.stroke[0], GLYPH.stroke[1]);
+  const ringHalf = rr(rng, GLYPH.ring[0], GLYPH.ring[1]);
 
-  /* Mass placement, then the spans resolved. Done in two steps because a span
-     has to be limited by how many masses there are: two neighbouring masses
+  /* Blot placement, then the spans resolved. Done in two steps because a span
+     has to be limited by how many blots there are: two neighbouring blots
      spanning half the circle each just read as one very thick patch. */
   const placed = chosen.map((s) => ({
-    angle: (s + 0.5) * sectorAngle + rr(rng, -0.14, 0.14),
+    angle: (s + 0.5) * sectorAngle + rr(rng, -0.16, 0.16),
     strength: clamp(0.34 + profile[s] * 1.05, 0.20, 1.35),
-    rawSpan: rr(rng, MASS.span[0], MASS.span[1]) * (0.82 + 0.36 * profile[s]),
+    rawSpan: rr(rng, BLOT.span[0], BLOT.span[1]) * (0.85 + 0.30 * profile[s]),
   }));
 
-  /* ---- the masses ------------------------------------------------------ */
-  /* Profiles first: the band is the stroke, and the stroke's width is what
-     these are. */
-  const massData = placed.map((m) => {
-    const halfSpan = Math.min(m.rawSpan, TAU / (placed.length * 2) - 0.04);
-    const { widths, peak } = massProfile({
-      halfSpan, hairline, strength: m.strength, rng,
+  /* ---- the blots ------------------------------------------------------- */
+  const blotData = placed.map((m) => {
+    const halfSpan = Math.min(m.rawSpan, TAU / (placed.length * 2) - 0.06);
+    const { widths, peak } = blotProfile({
+      halfSpan, ringHalf, strength: m.strength, rng,
     });
     return { angle: m.angle, halfSpan, widths, peak, strength: m.strength };
   });
 
-  /* Heaviest leads: the limb starts where the ink is thickest, and it leads by
-     more than the profile's own spread. Almost every reference has one dominant
-     mass and thin stroke elsewhere; giving all the masses comparable weight
-     produces a ring that is uniformly lumpy, which reads as a wobbling circle
-     rather than as a written mark. */
-  massData.sort((x, y) => y.strength - x.strength);
+  /* Heaviest leads. Almost every reference has one dominant blot and a quiet
+     circle elsewhere; giving all the blots comparable weight produces a ring
+     that is uniformly lumpy, which reads as a wobbling circle rather than as a
+     written mark. */
+  blotData.sort((x, y) => y.strength - x.strength);
 
   /* ---- gaps ----------------------------------------------------------- */
   /* Where the profile falls near zero the stroke lifts off the glass. This
@@ -154,7 +151,7 @@ export function makeRingGlyph(seed) {
     return flow;
   };
 
-  const startA = massData[0].angle;
+  const startA = blotData[0].angle;
 
   /* ---- the ring path -------------------------------------------------- */
   /* Compass-guided, so remarkably round. Amplitudes are GLYPH.wobble and are
@@ -181,7 +178,7 @@ export function makeRingGlyph(seed) {
   path[N] = { ...path[0], u: 1 };        // close exactly, so the band has no seam
 
   const { widths, peak } = ringProfile({
-    masses: massData, sectorProfile: profile, hairline, samples: N + 1, flowAt,
+    blots: blotData, sectorProfile: profile, ringHalf, samples: N + 1, flowAt,
   });
   const band = ringBand({ path, widths, seed, peak });
   const ink = striations(seed);
@@ -205,12 +202,12 @@ export function makeRingGlyph(seed) {
       }),
       /* The limb tip, wet-only: it exists only while the stroke is being laid
          down, so baking it in would leave a fringe of spikes round the ring. */
-      tip: (ctx) => limbTip(ctx, path[e - 1], hairline),
+      tip: (ctx) => limbTip(ctx, path[e - 1], ringHalf),
     });
   }
 
   /* ---- dry brush over the footprint ------------------------------------ */
-  const marks = dryTexture({ path, widths, seed, hairline });
+  const marks = dryTexture({ path, widths, seed, ringHalf });
   for (let part = 0; part < 3; part++) {
     const slice = marks.filter((_, i) => i % 3 === part);
     if (!slice.length) continue;
@@ -218,10 +215,10 @@ export function makeRingGlyph(seed) {
   }
 
   /* ---- the offshoots --------------------------------------------------- */
-  /* After the stroke, so their roots land on top of the mass and vanish into it.
+  /* After the circle, so their roots land on top of the blot and vanish into it.
      Split into batches purely so they arrive over a few frames rather than all
      at once — the geometry was computed in one place, above. */
-  const fil = filaments({ masses: massData, rng, hairline, seed });
+  const fil = filaments({ blots: blotData, rng, ringHalf, seed });
   const BATCHES = 4;
   for (let b = 0; b < BATCHES; b++) {
     const slice = fil.filter((_, i) => i % BATCHES === b);
@@ -229,7 +226,7 @@ export function makeRingGlyph(seed) {
     ops.push({ w: 1.1, draw: (ctx) => drawFilaments(ctx, slice) });
   }
 
-  const dots = specks({ masses: massData, rng, hairline });
+  const dots = specks({ blots: blotData, rng });
   if (dots.length) {
     // faint last: spatter is the driest thing on the glass
     ops.push({ w: 1.4, draw: (ctx) => drawSpecks(ctx, dots) });
@@ -263,7 +260,7 @@ export function makeRingGlyph(seed) {
             const x = Math.cos(s.a) * s.r, y = Math.sin(s.a) * s.r;
             if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y);
           }
-          ctx.lineWidth = hairline * P.m * 1.3;
+          ctx.lineWidth = ringHalf * P.m * 1.3;
           ctx.strokeStyle = `rgba(0,0,0,${P.a})`;
           ctx.stroke();
         }
@@ -303,8 +300,8 @@ export function makeRingGlyph(seed) {
   return {
     ops, total, seed,
     sectors: profile, sectorAngle,
-    path, widths, hairline,
-    masses: massData, peak,
+    path, widths, ringHalf,
+    blots: blotData, peak,
     filaments: fil, specks: dots,
     profileAt,
   };
@@ -314,9 +311,9 @@ export function makeRingGlyph(seed) {
  * The limb's tip: a wedge trailing the head of the stroke. Only meaningful
  * while the stroke is being laid down, hence wet-only.
  */
-function limbTip(ctx, h, hairline) {
+function limbTip(ctx, h, ringHalf) {
   const a = h.a + Math.PI / 2;
-  const L = hairline * 5.0, W = hairline * 2.3;
+  const L = ringHalf * 5.0, W = ringHalf * 2.3;
   ctx.beginPath();
   ctx.moveTo(h.x - Math.cos(a) * L, h.y - Math.sin(a) * L);
   ctx.quadraticCurveTo(h.x - Math.cos(a) * L * 0.28, h.y - Math.sin(a) * L * 0.28, h.x, h.y);

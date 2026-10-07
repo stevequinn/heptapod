@@ -1,29 +1,33 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    The stroke.
 
-   A logogram is ONE continuous stroke whose *width* is the primary variable.
-   Measured off the reference figures:
+   A logogram is a thin circle of near-constant weight, with blots of ink
+   dropped on it. This module draws the circle. blot.js describes what lands on
+   it, offshoots.js what leaves it.
 
-     hairline  0.043 R across (half-width 0.022) — the thin, quiet part
-     mass      up to 0.44 R across (10x), over 24% of the circumference
+   The circle is the point, and getting it wrong is what made every earlier
+   version look wrong in a way that was hard to name. It is present in all 38
+   reference frames. It is even. It is complete, or very nearly so — a break in
+   it is the exception, and a clean break rather than a fade. Versions of this
+   file have modulated its weight heavily to produce the heavy regions, and
+   every one of them produced a ring that looked like it faded out, because it
+   did.
 
-   The mass is not an object beside the ring. It is the ring, fatter. An earlier
-   version drew the ring at a constant hairline and then laid a filled band on
-   top, which is why it read as a glump stuck to a wire — an architectural
-   error, not a parametric one, and no amount of tuning the band fixed it.
+   It has also been drawn at more than twice the right weight for most of this
+   project's life: 0.021 R for the half-width, derived from a screenshot early
+   on and never re-derived, with every later measurement normalised against it.
+   Measured properly, on the full-resolution frames, it is 0.015 to 0.022 R
+   *across* — the thinnest line in the whole corpus.
 
-   So everything here operates on a width profile around one path:
-
-     ringProfile   the hairline, the twelve-sector ink profile, the masses, and
-                   where the stroke lifts off the glass
-     ringBand      the stroke itself, as a band whose edges follow that profile
+     ringProfile   the circle, the blots on it, and where it lifts off the glass
+     ringBand      the mark itself, as a band whose edges follow that profile
      striations    how each lengthwise streak is inked — the dry-brush gaps
-     dryTexture    fine streaks along the stroke, and a torn edge
+     dryTexture    fine streaks along the mark, and a torn edge
 
    All geometry is in glyph-local space: the nominal ring sits at radius 1.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { STROKE } from '../config.js';
+import { GLYPH, STROKE } from '../config.js';
 import { TAU, angDiff, clamp01, fbm1, mulberry32, ri, smoothstep } from '../lib/math.js';
 
 /* ═══ the width profile ═════════════════════════════════════════════════ */
@@ -33,64 +37,62 @@ import { TAU, angDiff, clamp01, fbm1, mulberry32, ri, smoothstep } from '../lib/
  *
  * Three contributions, in ascending order of authority:
  *
- *   1. a hairline weighted by the twelve-sector ink profile, so the quiet parts
- *      of the stroke are still inked unevenly rather than uniformly
- *   2. whichever mass covers this angle, taking the maximum
- *   3. the lift-off, where the limb came off the glass and the swell goes
+ *   1. the circle, with the twelve-sector ink profile supplying its unevenness
+ *   2. whichever blot covers this angle, taking the maximum — the circle runs
+ *      *through* a blot rather than being replaced by it
+ *   3. the lift-off, where the circle leaves the glass
  *
- * Widths from a mass arrive here already in half-width units, so there is no
- * remapping step. That is deliberate — the remap existed only to translate a
- * cellular automaton's measurements, and it was where the units got conflated.
+ * Blot widths arrive already in half-width units, so there is no remapping
+ * step. That is deliberate — the remap existed only to translate a cellular
+ * automaton's measurements, and it was where the units got conflated.
  *
- * @param {Array<{angle:number, halfSpan:number, widths:Float32Array}>} masses
+ * @param {Array<{angle:number, halfSpan:number, widths:Float32Array}>} blots
  * @param {Float32Array} sectorProfile  per-sector ink weight, 0..1
- * @param {number} hairline             half-width with no ink, ring radii
+ * @param {number} ringHalf             the circle's half-width, ring radii
  * @param {number} samples
- * @param {function(number):number} [flowAt]  0..1 where the stroke has lifted
- * @returns {{widths: Float32Array, peak: number, massHalfSpan: Float32Array}}
+ * @param {function(number):number} [flowAt]  0..1 where the circle has lifted
+ * @returns {{widths: Float32Array, peak: number}}
  */
-export function ringProfile({ masses, sectorProfile, hairline, samples, flowAt }) {
+export function ringProfile({ blots, sectorProfile, ringHalf, samples, flowAt }) {
   const M = sectorProfile.length;
   const widths = new Float32Array(samples);
-  const floor = hairline * 0.6;
+  /* The circle's own small unevenness. Deliberately small: the reference rings
+     are even, and a wobbly line reads as a wobbly line. */
+  const vary = GLYPH.ringVariation;
 
-  let peak = hairline;
+  let peak = ringHalf;
   for (let i = 0; i < samples; i++) {
     const a = (i / samples) * TAU;
 
-    // 1. the hairline, weighted by which sector of the logogram this is
+    // 1. the circle, with the twelve-sector profile supplying its unevenness
     const u = (a / TAU) * M;
     const i0 = Math.floor(u) % M;
     const f = u - Math.floor(u);
     const sp = sectorProfile[i0]
              + (sectorProfile[(i0 + 1) % M] - sectorProfile[i0]) * f * f * (3 - 2 * f);
-    let w = hairline * STROKE.base[0] + hairline * STROKE.base[1] * sp;
+    let w = ringHalf * (1 - vary * 0.5 + vary * sp);
 
-    // 2. the masses
-    for (const d of masses) {
-      const dd = angDiff(a, d.angle);
-      if (Math.abs(dd) > d.halfSpan) continue;
-      const t = (dd / d.halfSpan + 1) * 0.5;
-      const k = Math.max(0, Math.min(d.widths.length - 1,
-        Math.round(t * (d.widths.length - 1))));
-      if (d.widths[k] > w) w = d.widths[k];
+    // 2. the blots, on top. They are the heavy regions; the circle runs through
+    //    them rather than being replaced by them.
+    for (const b of blots) {
+      const dd = angDiff(a, b.angle);
+      if (Math.abs(dd) > b.halfSpan) continue;
+      const t = (dd / b.halfSpan + 1) * 0.5;
+      const k = Math.max(0, Math.min(b.widths.length - 1,
+        Math.round(t * (b.widths.length - 1))));
+      if (b.widths[k] > w) w = b.widths[k];
     }
 
-    // 3. where the limb has lifted, the swell goes and only a trace is left.
-    //    In the deepest part of a lift the contact goes entirely — the
-    //    references have ~6% of the circle with no ink at all, and a stroke
-    //    that merely thins never produces a true gap.
-    if (flowAt) {
-      const flow = flowAt(a);
-      w = floor + (w - floor) * flow;
-      if (flow < STROKE.lift) w *= smoothstep(STROKE.lift * 0.15, STROKE.lift, flow);
-    }
+    /* 3. Where the limb lifted. Rare, and a clean break rather than a fade —
+       the reference rings do not thin out at the edges of their gaps, they
+       simply stop. */
+    if (flowAt) w *= flowAt(a);
 
     widths[i] = w;
     if (w > peak) peak = w;
   }
 
-  return { widths, peak, floor };
+  return { widths, peak };
 }
 
 /* ═══ the band ══════════════════════════════════════════════════════════ */
@@ -99,10 +101,9 @@ export function ringProfile({ masses, sectorProfile, hairline, samples, flowAt }
  * The stroke as a band whose two edges follow the width profile.
  *
  * The inner edge sits closer in than the outer edge pushes out, and the
- * asymmetry grows with the local width. Ink displaced by a brush travelling
- * round a circle piles up outside the line it travelled, and it piles up more
- * the harder the brush was pressed — so a band with a *fixed* asymmetry reads
- * as a different stroke rather than as a heavier one.
+ * asymmetry grows with the local width: ink dropped on a circle sits on it
+ * rather than centred in it, and a heavy blot spills outward more than inward
+ * — which is what the reference blots do.
  *
  * @param {Array<{x,y,nx,ny,u}>} path  ring samples in glyph-local space
  * @param {Float32Array} widths         per-sample half-width
@@ -115,7 +116,7 @@ export function ringBand({ path, widths, seed, peak }) {
   const inner = new Array(n);
 
   /* Four scales of edge irregularity, and they do different jobs: `lobes` gives
-     the masses big rounded scallops, which is what a loaded brush leaves;
+     a blot big rounded scallops, which is what a loaded brush leaves;
      `ragged` and `tear` break the boundary up; `fine` is the sawtooth of
      individual bristle tips catching the glass.
 
@@ -125,7 +126,7 @@ export function ringBand({ path, widths, seed, peak }) {
      bristle tips rather than as blur. */
   const lobes = fbm1(mulberry32(seed ^ 0x1b873593), 2);
   const ragged = fbm1(mulberry32(seed ^ 0x27d4eb2f), 3);
-  const tear = fbm1(mulberry32(seed ^ 0x9b05688c), 2);
+  const tear1 = fbm1(mulberry32(seed ^ 0x9b05688c), 2);
   const fine = fbm1(mulberry32(seed ^ 0x165667b1), 2);
   const notch = fbm1(mulberry32(seed ^ 0x3b9aca07), 2);
 
@@ -136,18 +137,30 @@ export function ringBand({ path, widths, seed, peak }) {
     const p = path[i];
     let w = widths[i];
 
-    w *= 1 + STROKE.ragged * ((lobes(p.u * 3.1) - 0.45) * 1.5
-                            + (ragged(p.u * 9) - 0.5) * 1.0
-                            + 1.05 * (tear(p.u * 40) - 0.5) * 2
-                            + 0.30 * (fine(p.u * 96) - 0.5) * 2);
-
-    /* Sparse deep notches. The reference masses are bitten into by white
-       wedges a third of the way through, and a width that only *wobbles* never
-       produces one — the modulation has to be able to reach zero locally. 26
-       cycles round the circle puts two or three notches across a mass. */
-    w *= 1 - 0.38 * smoothstep(0.70, 0.95, notch(p.u * 22));
-
+    /* How much this part of the mark is loaded, 0 = the bare circle, 1 = the
+       middle of a blot. Everything below scales with it, and that is not a
+       detail. The modulation was tuned when the circle was drawn at more than
+       twice its present weight; applied flat to a mark that thin it can drive
+       the half-width *negative*, and a negative half-width inverts the band and
+       makes the circle disappear entirely — which is exactly what it did.
+       Physically it is also the right shape: a fine pen line is smooth, and
+       tearing is a property of heavy, wet ink. */
     const load = peak > 0 ? Math.min(1, w / peak) : 0;
+    const tear = STROKE.ragged * (0.16 + 0.84 * load);
+
+    w *= 1 + tear * ((lobes(p.u * 3.1) - 0.45) * 1.5
+                   + (ragged(p.u * 9) - 0.5) * 1.0
+                   + 1.05 * (tear1(p.u * 40) - 0.5) * 2
+                   + 0.30 * (fine(p.u * 96) - 0.5) * 2);
+
+    /* Sparse deep notches, on the blots only. The reference blots are bitten
+       into by white wedges a third of the way through, and a width that only
+       *wobbles* never produces one — the modulation has to reach zero locally.
+       22 cycles round the circle puts two or three notches across a blot. */
+    w *= 1 - 0.30 * load * smoothstep(0.70, 0.95, notch(p.u * 22));
+
+    if (w < 0) w = 0;
+
     const o = outLo + (outHi - outLo) * load;
     const k = inLo + (inHi - inLo) * load;
     outer[i] = [p.x + p.nx * w * o, p.y + p.ny * w * o];
@@ -164,7 +177,7 @@ export function ringBand({ path, widths, seed, peak }) {
  * machine-made. Real ink over its own path is striated: the brush has bristles,
  * some touch the glass and some do not, so the mark is lengthwise streaks with
  * thin gaps through it. The references are full of these — most visibly in the
- * masses, which are torn into ribbons rather than being solid blobs.
+ * blots, which are torn into ribbons rather than being solid blobs.
  *
  * Each strip is a quad between two fractions of the way from the inner edge to
  * the outer edge, so the strips follow the band as it turns, and their alpha
@@ -173,7 +186,7 @@ export function ringBand({ path, widths, seed, peak }) {
  * across it. Runs share sample points with their neighbours, so no seams.
  *
  * The number of strips follows the local width, and that is not a detail. A
- * fixed eight across a hairline makes each strip sub-pixel, and sub-pixel quads
+ * fixed eight across a thin circle makes each strip sub-pixel, and sub-pixel quads
  * antialias into a pale grey line — the whole quiet half of the ring came out
  * washed out for exactly this reason. One strip where the stroke is thin (so it
  * is solid), eight where it is heavy (so it is torn).
@@ -218,8 +231,8 @@ export function drawBandChunk(ctx, band, from, to, o) {
  * curve is an offset blend that stays high, plus a separate cutoff for the few
  * places the tip skipped the glass entirely.
  *
- * How far the bristles separate depends on pressure: the hairline is nearly
- * unbroken, the mass is torn into ribbons.
+ * How far the bristles separate depends on pressure: the circle is nearly
+ * unbroken, a blot is torn into ribbons.
  */
 export function striations(seed) {
   const across = fbm1(mulberry32(seed ^ 0x7feb352d), 3);
@@ -238,11 +251,11 @@ export function striations(seed) {
 /**
  * Fine streaks along the stroke: the scratchy interior and torn edge.
  *
- * Offsets are in units of the *hairline*, not of the local width. Scaled to the
- * local width the streaks look reasonable on a hairline and completely wrong on
- * a mass, where each one becomes a long diagonal across the whole swell.
+ * Offsets are in units of the *ring weight*, not of the local width. Scaled to
+ * the local width the streaks look reasonable on the circle and completely wrong on
+ * a blot, where each one becomes a long diagonal across the whole swell.
  */
-export function dryTexture({ path, widths, seed, hairline }) {
+export function dryTexture({ path, widths, seed, ringHalf }) {
   const n = path.length;
   const rng = mulberry32(seed ^ 0x51ed270b);
   const wob = fbm1(mulberry32(seed ^ 0x2c1b3a6d), 3);
@@ -255,20 +268,20 @@ export function dryTexture({ path, widths, seed, hairline }) {
     const len = ri(rng, 2, 9);
     if (idx + len >= n) continue;
 
-    const off = (0.3 + 1.2 * rng()) * hairline * (rng() < 0.5 ? 1 : -1);
+    const off = (0.3 + 1.2 * rng()) * ringHalf * (rng() < 0.5 ? 1 : -1);
     const steps = [];
     for (let k = 0; k < len; k++) {
       const j = idx + k;
       const q = path[j];
-      const o = Math.min(widths[j] * 0.45, off + hairline * (wob((j / n) * 9 + i) - 0.5) * 1.6);
+      const o = Math.min(widths[j] * 0.45, off + ringHalf * (wob((j / n) * 9 + i) - 0.5) * 1.6);
       steps.push([q.x + q.nx * o, q.y + q.ny * o]);
     }
     if (steps.length < 2) continue;
 
-    const fat = local > hairline * 2.4;
+    const fat = local > ringHalf * 2.4;
     marks.push({
       steps,
-      w: hairline * (0.20 + 0.70 * rng()),
+      w: ringHalf * (0.20 + 0.70 * rng()),
       a: (0.08 + 0.34 * rng()) * (fat ? 1 : 0.42),
     });
   }

@@ -35,15 +35,31 @@ export const GLYPH = {
   /** ring path resolution */
   pathSegments: 216,
   /**
-   * The hairline: the stroke's half-width where there is no ink, in
+   * The ring: a thin line of near-constant weight, as a half-width in
    * ring-radius units.
    *
-   * Measured off the reference figures: the thinnest part of the stroke is
-   * 0.043 R across, so a half-width of 0.0215. That number has been stable
-   * across every way I have measured it and it is the one thing the first
-   * version of this file already had right.
+   * Two corrections live in this number. First, the ring is not "a stroke whose
+   * weight varies" — it is a *circle*, drawn with an even hand, present in
+   * every one of the 38 frames and usually complete. What varies is not the
+   * circle, it is what has been dropped on top of it. Modelling the two as one
+   * variable-width stroke was wrong in a way that took a long time to see,
+   * because the statistics of the two models overlap almost completely.
+   *
+   * Second, and more embarrassing: 0.021 was too heavy by well over twice. It
+   * came from a screenshot and was never re-derived, and every later
+   * measurement was normalised against it, so the error propagated into
+   * everything. Measured with a distance transform on the full-resolution
+   * frames — which is immune to the thing that had been corrupting every
+   * earlier attempt, namely that a spike lying along a ray reads as a very
+   * thick mark — the ring is 0.015 to 0.022 R *across*, so a half-width around
+   * 0.009 R.
    */
-  stroke: [0.021, 0.026],
+  ring: [0.008, 0.019],
+
+  /** How much the ring's weight varies around the circle, as a fraction of
+   *  its half-width. Small: a wobbly line reads as a wobbly line, and the
+   *  reference rings are even. */
+  ringVariation: 0.24,
 
   /**
    * Ring radius wobble, as three amplitudes (low, mid, high frequency).
@@ -53,8 +69,14 @@ export const GLYPH = {
    * at twice these amplitudes read as a wobbly circle rather than a glyph.
    */
   wobble: [0.055, 0.022, 0.010],
-  /** deposits per glyph */
-  deposits: [2, 3],
+  /** blots per glyph. One is common and three is the most seen in the set. */
+  blots: [1, 3],
+
+  /** The ring lifts off the glass occasionally, leaving a clean break. It is
+   *  the exception — most frames are a closed circle — so this is the chance
+   *  that a glyph has one gap at all, and how long it is. */
+  gapChance: 0.35,
+  gapSpan: [0.10, 0.40],
   /** interior ink haze. This is a whisper: the film's haze barely tints the
    *  circle, and a large or strong one turns the whole glyph into a grey
    *  smudge with the ring drawn on top of it. */
@@ -65,43 +87,50 @@ export const GLYPH = {
 };
 
 /**
- * The ink mass.
+ * The blot.
  *
- * A logogram is one stroke whose weight is the primary variable, and where it
- * is heavy it is a *blob of ink* — not a thick line. Everything here describes
- * that blob.
+ * A compact, dense, irregular blob of ink dropped on the ring. Everything here
+ * describes that blob, and the shape it is *not* is a tapered blade: the first
+ * version modelled the heavy regions as the stroke swelling gently over 60 to
+ * 100 degrees of arc, and the references' blots are nothing like that. They are
+ * short — most span 25 to 45 degrees — and they are *deep*, five to nine times
+ * the ring's own weight, with an irregular lobed outline like a splat.
  *
- * Measured off the reference figures (3300px, isolated, thresholded; see
- * tools/reference). All figures are fractions of the ring radius R, and the
- * stroke's own width is quoted as a multiple of the hairline, because the ratio
- * between the thin part and the heavy part is the single most legible thing
- * about a logogram and is remarkably consistent from one frame to the next:
+ * Measured across all 38 frames (see tools/probe-ink.html for the live
+ * comparison against these ranges):
  *
- *   hairline          0.043 R full width  (half-width 0.022)
- *   median stroke     0.072 R             (1.7x)
- *   heavy region      0.226 R             (5.3x, and 24% of the circumference)
- *   heaviest          0.441 R             (10x)
+ *   ring weight      0.043 R across at the thinnest, and near-constant
+ *   blot peak        4 to 15 times the ring, most often around 7
+ *   blot coverage    8% to 57% of the circumference, median 38%
+ *   blot count       1 or 2 typically, 3 at most
  */
-export const MASS = {
-  /** peak half-width, as a multiple of the hairline. The top of the range is
-   *  the measured 10x; the bottom is what a lesser deposit gets, and the spread
-   *  between them is most of what makes one glyph differ from another. */
-  peak: [4.6, 8.4],
+export const BLOT = {
+  /** peak half-width, as a multiple of the ring's half-width. The blot-to-ring
+   *  ratio is the number that decides whether a logogram reads as a drawn
+   *  circle with ink on it or as a lumpy band, and across the corpus it runs
+   *  from about 5 to about 20 with a typical value near 9. */
+  peak: [6.5, 18.0],
 
-  /** the shape of the swell across a deposit's arc, as an exponent on the
-   *  parabolic blade in mass.js. Below 1 broadens the shoulders; above 1
-   *  narrows them and sharpens the tips. */
-  shoulder: 0.82,
+  /** the blot's shape across its arc, as an exponent on the parabolic falloff
+   *  in blot.js. Well below 1 gives the *full* outline a splat has — nearly its
+   *  peak width over the middle of its span and falling away only near the
+   *  ends. A Gaussian is the obvious thing to reach for and is far too pointy;
+   *  even 0.62 left the blots reading as modest thickenings of the circle
+   *  rather than as ink dropped on it. */
+  shoulder: 0.42,
 
-  /** irregularity of the blob's outline, and how much it varies across the
-   *  blob rather than uniformly. A smooth ellipse reads as a drawn shape. */
-  lumpiness: 0.18,
-  lumpFreq: 2.2,
+  /** angular half-span, radians — most blots are 25 to 45 degrees across */
+  span: [0.30, 0.95],
 
-  /** angular half-span of a deposit's mass, radians. The references run from
-   *  about 40 to 65 degrees of arc at half-maximum, and they are big: between
-   *  a fifth and a third of the whole circle is "heavy" in every frame. */
-  span: [0.46, 0.86],
+  /** irregularity of the outline at two scales, and how fast it varies along
+   *  the blot. A smooth ellipse reads as a drawn shape. */
+  lumpiness: 0.26,
+  lumpFreq: 3.0,
+
+  /** How far a blot extends outward versus inward from the ring line. Ink
+   *  dropped on a circle sits on it rather than centred in it, and it spills
+   *  outward more than inward. */
+  bulge: [0.55, 1.05],
 };
 
 /**
@@ -173,10 +202,10 @@ export const STROKE = {
 export const OFFSHOOT = {
   /** filaments per logogram. Scaled per deposit by how heavy it is, then this
    *  bounds the total. */
-  count: [12, 30],
+  count: [26, 64],
 
   /** length, in ring radii, from the root to the tip */
-  length: [0.04, 0.48],
+  length: [0.04, 0.30],
 
   /** root half-width, as a multiple of the hairline. Around 1 means a filament
    *  is about as heavy as the thinnest part of the stroke, which is what the
@@ -203,7 +232,7 @@ export const OFFSHOOT = {
   /** hard cap on a filament's reach. The outliers below would otherwise push
    *  past the longest filament in any reference frame, and a single absurd
    *  filament is more conspicuous than any number of dull ones. */
-  maxLength: 0.60,
+  maxLength: 0.52,
 
   /** the length distribution is skewed hard toward short: the references have
    *  a dense fringe of short filaments along the mass and only a handful of
@@ -217,23 +246,29 @@ export const OFFSHOOT = {
   /** angular spread of the emission direction about the outward radial, in
    *  radians. The measurement's p10-p90 is roughly +-40 degrees of the median,
    *  which a sum-of-three-uniforms scaled by this reproduces. */
-  spread: 1.0,
+  spread: 1.25,
 
-  /** where along the mass a filament is emitted from, as a fraction of the
-   *  mass's own half-span, and how deep inside the blob the root sits so the
-   *  blob covers it */
+  /** Emission is gated on the *local* blot weight, as a fraction of that blot's
+   *  own peak. This is the rule that spikes leave blots and never the thin
+   *  circle: a blot's profile falls to nothing at the ends of its own arc, so
+   *  "inside the arc" is not the same as "on thick ink", and filaments emitted
+   *  from the thin ends read as a hairy circle rather than a splashed one. */
+  minLoad: 0.30,
+
+  /** where along the blot a filament is emitted from, as a fraction of the
+   *  blot's own half-span */
   outlet: [0.15, 0.95],
 
   /** Filaments arrive in clumps, not a comb. The references' fringes are
    *  bunches of filaments from near the same point on the mass, fanning out,
    *  with bare stretches between the bunches. Spacing them evenly along the
    *  arc is the single clearest sign that a fringe is generated. */
-  clumps: [2, 4],
+  clumps: [3, 7],
   /** half-width of a clump along the mass, as a fraction of the mass's span */
-  clumpSpread: 0.14,
+  clumpSpread: 0.22,
   /** how tightly the directions within a clump agree. 0 is one shared
    *  direction for the whole clump, larger fans it out. */
-  clumpFan: 0.55,
+  clumpFan: 0.85,
 };
 
 /**

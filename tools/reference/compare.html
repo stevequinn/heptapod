@@ -3,214 +3,347 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Logograms — reference against generated</title>
+<title>Logograms — review</title>
 <style>
-  :root { --paper:#e8ebec; --ink:#12181b; --dim:#7d8a8d; --rule:#c9d0d2; }
+  :root { --paper:#e8ebec; --ink:#12181b; --dim:#7d8a8d; --rule:#c9d0d2; --bad:#b23a1a; }
   * { margin:0; padding:0; box-sizing:border-box; }
   body {
-    background:var(--paper); color:var(--ink); padding:24px 28px 80px;
+    background:var(--paper); color:var(--ink); padding:20px 24px 90px;
     font:12px/1.5 ui-monospace, Menlo, monospace;
-    letter-spacing:.14em; text-transform:uppercase;
   }
-  h1 { font-size:12px; font-weight:400; letter-spacing:.28em; margin-bottom:4px; }
-  .sub { color:var(--dim); font-size:10px; letter-spacing:.16em; margin-bottom:6px; }
-  .controls {
-    display:flex; gap:14px; align-items:center; flex-wrap:wrap;
-    padding:12px 0 18px; border-bottom:1px solid var(--rule); margin-bottom:22px;
-    font-size:10px; color:var(--dim); letter-spacing:.14em;
+  h1 { font-size:12px; font-weight:400; letter-spacing:.26em; text-transform:uppercase; margin-bottom:4px; }
+  .sub { color:var(--dim); font-size:10.5px; max-width:88ch; margin-bottom:14px; }
+  .bar {
+    display:flex; gap:16px; align-items:center; flex-wrap:wrap;
+    padding:11px 0 13px; border-top:1px solid var(--rule); border-bottom:1px solid var(--rule);
+    margin-bottom:20px; font-size:10px; color:var(--dim); letter-spacing:.12em; text-transform:uppercase;
   }
-  .controls label { display:flex; gap:5px; align-items:center; }
-  .controls input[type=text], .controls select {
-    font:inherit; font-size:10px; letter-spacing:.1em; text-transform:none;
-    padding:4px 6px; border:1px solid var(--rule); background:#fff; color:var(--ink);
+  .bar label { display:flex; gap:5px; align-items:center; }
+  .bar select, .bar input[type=text], .bar input[type=number] {
+    font:inherit; font-size:10px; letter-spacing:.08em; text-transform:none;
+    padding:3px 5px; border:1px solid var(--rule); background:#fff; color:var(--ink);
   }
-  .controls input[type=text] { width:6.5em; }
-  .controls input[type=range] { width:110px; }
-  /* the point of the tool: one reference above one generated, same size,
-     in the same column, so the eye compares them directly */
-  .pairs { display:flex; flex-wrap:wrap; gap:26px 22px; }
+  .bar input[type=text] { width:11em; }
+  .bar input[type=number] { width:6em; }
+  .bar input[type=range] { width:100px; }
+  .bar button {
+    font:inherit; font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+    padding:4px 10px; border:1px solid var(--ink); background:var(--ink); color:var(--paper); cursor:pointer;
+  }
+  .bar button.ghost { background:none; color:var(--ink); }
+  .grid { display:grid; gap:14px; justify-content:start; }
   .pair { width:var(--cell); }
   .cell {
-    width:var(--cell); height:var(--cell);
-    border:1px solid var(--rule); overflow:hidden; position:relative;
-    background:var(--paper);
+    width:var(--cell); height:var(--cell); overflow:hidden; position:relative;
+    border:1px solid var(--rule); background:#fff;
   }
-  .cell img { display:block; width:100%; height:100%; object-fit:contain; }
-  .cell canvas { display:block; width:100%; height:100%; }
+  .cell img, .cell canvas { display:block; width:100%; height:100%; }
+  .cell canvas { image-rendering:auto; }
   .tag {
-    position:absolute; top:0; left:0;
-    font-size:9px; letter-spacing:.16em; padding:3px 6px;
-    background:rgba(232,235,236,.85); color:var(--dim);
+    position:absolute; top:0; left:0; font-size:8.5px; letter-spacing:.14em;
+    padding:2px 5px; background:rgba(232,235,236,.86); color:var(--dim);
   }
-  .cell.gen .tag { background:rgba(18,24,27,.82); color:#cfd8da; }
-  .name { padding-top:5px; color:var(--dim); font-size:9.5px; letter-spacing:.1em; }
+  .cell.gen .tag { background:rgba(18,24,27,.84); color:#cfd8da; }
+  .name { padding-top:3px; color:var(--dim); font-size:9px; letter-spacing:.06em; }
   .name b { font-weight:400; color:var(--ink); }
-  .missing {
-    display:grid; place-items:center; height:100%; padding:16px; text-align:center;
-    color:var(--dim); font-size:10px; line-height:1.9;
-  }
+  .missing { display:grid; place-items:center; height:100%; padding:14px; text-align:center; color:var(--dim); font-size:10px; line-height:1.8; }
   .missing code { text-transform:none; letter-spacing:0; color:var(--ink); }
+  .sec { margin:26px 0 10px; font-size:10px; letter-spacing:.24em; text-transform:uppercase; color:var(--dim); }
 </style>
 </head>
 <body>
 
-<h1>Logograms — reference against generated</h1>
-<p class="sub">
-  Top of each pair: a real logogram frame from the film. Bottom: the generator's
-  output for the seed beneath it.
+<h1>Logograms — review</h1>
+<p class="sub" id="sub">
+  Loading.
 </p>
 
-<div class="controls">
-  <label>seeds <input type="text" id="seeds" value="20240515,5874917,1346631033,1316061432,1547784110,914391992" size="34" /></label>
-  <label>cell <input type="range" id="cell" min="180" max="560" step="20" value="300" /></label>
-  <label>pairing
-    <select id="pairing">
-      <option value="zip">seed i ↔ image i</option>
-      <option value="none">no reference</option>
+<div class="bar">
+  <label>view
+    <select id="view">
+      <option value="interleave">interleaved</option>
+      <option value="pairs">reference over generated</option>
+      <option value="refs">references only</option>
+      <option value="gen">generated only</option>
     </select>
   </label>
-  <label>images <input type="text" id="only" placeholder="e.g. Costello1,Time1" size="22" /></label>
-  <label><input type="checkbox" id="bare" /> ink only</label>
-  <a href="/tools/probe-ink.html" style="color:inherit">ink probe &rarr;</a>
+  <label>reference <select id="pick"></select></label>
+  <label>cell <input type="range" id="cell" min="150" max="620" step="10" value="290" /></label>
+  <label>count <input type="number" id="count" min="1" max="76" value="18" /></label>
+  <label>seed <input type="number" id="seed" value="20240515" /></label>
+  <label><input type="checkbox" id="threshold" /> threshold</label>
+  <label><input type="checkbox" id="bare" checked /> ink only</label>
+  <label>ref filter <input type="text" id="only" placeholder="name contains" /></label>
+  <button id="reroll">reroll seeds</button>
   <span id="status"></span>
 </div>
 
-<div class="pairs" id="pairs"></div>
+<div class="grid" id="grid"></div>
 
 <script type="module">
 import { makeRingGlyph } from '/src/ink/glyph.js';
-import { mulberry32, ri } from '/src/lib/math.js';
 
 const qs = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
 const PAPER = '#e8ebec';
 
-/* Curated for variety: the two clearest open arcs, the two heaviest, and two
-   that show a single spur rather than a mass. */
-const DEFAULT_IMAGES = [
-  'Costello1', 'OfferWeapon1', 'WhereIsAbbott1',
-  'IanLouiseMustGo1', 'Earth1', 'Time1',
-];
+let NAMES = [];
+try {
+  const m = await fetch('logograms/manifest.json').then((r) => r.json());
+  NAMES = m.names.map((n) => n.replace(/\.jpe?g$/i, ''));
+} catch {
+  document.getElementById('sub').innerHTML =
+    'No manifest. Run <code>npm run reference</code> to fetch the frames.';
+}
 
-const IMAGES = (qs.get('only') || DEFAULT_IMAGES.join(',')).split(',').map((s) => s.trim()).filter(Boolean);
-const SEEDS = (qs.get('seeds') || $('seeds').value).split(',').map((s) => parseInt(s.trim(), 10)).filter(Number.isFinite);
-const CELL = parseInt(qs.get('cell') || $('cell').value, 10);
-const PAIRING = qs.get('pairing') || $('pairing').value;
-const BARE = qs.get('bare') === '1';
+/* ---- state ------------------------------------------------------------- */
+const S = {
+  view: qs.get('view') || 'interleave',
+  pick: qs.get('pick') || 'all',
+  cell: parseInt(qs.get('cell') || '290', 10),
+  count: parseInt(qs.get('count') || '18', 10),
+  seed: parseInt(qs.get('seed') || '20240515', 10),
+  threshold: qs.get('threshold') === '1',
+  bare: qs.get('bare') !== '0',
+  only: qs.get('only') || '',
+};
 
-/* Load the frames properly rather than probing with HEAD. A HEAD request
-   confirms the file exists but returns before the browser has decoded anything,
-   so the <img> elements render blank for a moment and a screenshot taken early
-   shows empty boxes — which is exactly the one case where this tool must not
-   lie. `decode()` resolves once the pixels are there. */
-const loaded = new Map();
-async function probe() {
-  await Promise.all(IMAGES.map(async (n) => {
+/* Preload the frames the page will actually show. `decode()` resolves once the
+   pixels exist; a HEAD or an onload does not, and an early screenshot of an
+   empty box is the one way this tool can lie. */
+const imgs = new Map();
+async function preload(list) {
+  await Promise.all(list.map(async (n) => {
+    if (imgs.has(n)) return;
     try {
-      const img = new Image();
-      img.src = `logograms/${n}.jpg`;
-      await img.decode();
-      loaded.set(n, img.src);
-    } catch { /* not fetched */ }
+      const im = new Image();
+      im.src = 'logograms/' + n + '.jpg';
+      await im.decode();
+      imgs.set(n, im);
+    } catch { /* absent */ }
   }));
 }
 
-function drawGlyph(seed, cell) {
+function thresholdCanvas(src) {
+  const c = document.createElement('canvas');
+  c.width = src.width; c.height = src.height;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(src, 0, 0);
+  const d = x.getImageData(0, 0, c.width, c.height);
+  for (let i = 0; i < d.data.length; i += 4) {
+    const v = d.data[i + 3] < 40 ? 255 : (d.data[i] * 0.299 + d.data[i + 1] * 0.587 + d.data[i + 2] * 0.114);
+    const b = v < 150 ? 0 : 255;
+    d.data[i] = d.data[i + 1] = d.data[i + 2] = b;
+    d.data[i + 3] = 255;
+  }
+  x.putImageData(d, 0, 0);
+  return c;
+}
+
+/* The generator draws anti-aliased black onto paper; the reference frames are
+   hard-thresholded cutouts. Comparing a grey edge against a hard edge makes the
+   generated ink read as softer than it is, so the threshold view exists to put
+   both through the same treatment. */
+function renderGlyph(seed, cell, cache) {
+  const key = seed + '/' + cell + '/' + S.bare;
+  if (cache.has(key)) return cache.get(key);
   const cv = document.createElement('canvas');
   const dpr = Math.min(devicePixelRatio || 1, 2);
-  cv.width = cell * dpr;
-  cv.height = cell * dpr;
-  const ctx = cv.getContext('2d');
+  cv.width = cell * dpr; cv.height = cell * dpr;
+  const ctx = cv.getContext('2d', { willReadFrequently: S.threshold });
   ctx.scale(dpr, dpr);
   ctx.fillStyle = PAPER;
   ctx.fillRect(0, 0, cell, cell);
-
   const g = makeRingGlyph(seed);
-  /* glyph-local space has the ring radius at 1, so scale straight into the box */
-  const R = cell * 0.40;
   ctx.save();
   ctx.translate(cell / 2, cell / 2);
-  ctx.scale(R, R);
-  /* `bare` drops the dry-only ops: the interior haze, the ghost scratches and
-     the dry-brush pass. The reference frames are cutouts of ink on white with
-     none of that on them, so leaving it in makes the comparison unfair — but it
-     is part of the glyph in the scene, so both views are worth having. */
-  for (const op of g.ops) if (!BARE || !op.dryOnly) op.draw(ctx);
+  ctx.scale(cell * 0.40, cell * 0.40);
+  for (const op of g.ops) if (!S.bare || !op.dryOnly) op.draw(ctx);
   ctx.restore();
-  return { cv, g };
+  const out = S.threshold ? thresholdCanvas(cv) : cv;
+  cache.set(key, { cv: out, g });
+  return cache.get(key);
 }
 
-function render() {
-  const pairs = $('pairs');
-  pairs.textContent = '';
-  pairs.style.setProperty('--cell', CELL + 'px');
+const cache = new Map();
 
-  SEEDS.forEach((seed, i) => {
-    const pair = document.createElement('div');
-    pair.className = 'pair';
+/* ---- build ------------------------------------------------------------- */
+function build() {
+  const grid = $('grid');
+  grid.textContent = '';
+  grid.style.setProperty('--cell', S.cell + 'px');
+  const cols = Math.max(2, Math.min(6, Math.floor((window.innerWidth - 60) / (S.cell + 14))));
+  grid.style.gridTemplateColumns = `repeat(${cols}, ${S.cell}px)`;
 
-    const showRef = PAIRING === 'zip' && IMAGES[i];
-    if (showRef) {
-      const name = IMAGES[i];
-      const box = document.createElement('div');
-      box.className = 'cell';
-      if (loaded.has(name)) {
-        const img = document.createElement('img');
-        img.src = loaded.get(name);
-        img.alt = name;
-        box.appendChild(img);
-      } else {
-        const miss = document.createElement('div');
-        miss.className = 'missing';
-        miss.innerHTML = `reference not fetched<br><br><code>npm run reference</code>`;
-        box.appendChild(miss);
+  let names = S.only ? NAMES.filter((n) => n.toLowerCase().includes(S.only.toLowerCase())) : NAMES;
+  if (S.pick !== 'all' && names.includes(S.pick)) names = [S.pick];
+  if (S.view !== 'refs') names = names.slice(0, S.count);
+
+  const showRefs = S.view === 'refs' || S.view === 'pairs' || S.view === 'interleave';
+  const showGen = S.view === 'gen' || S.view === 'pairs' || S.view === 'interleave';
+
+  /* Seeds walk with the index so a reroll changes every glyph and the URL still
+     reproduces the whole sheet. */
+  let sd = S.seed >>> 0;
+  const nextSeed = () => (sd = (Math.imul(sd, 1103515245) + 12345) >>> 0);
+
+  /* Everything is built synchronously and the frames are filled in as they
+     decode. Awaiting the whole set first meant the page showed nothing at all
+     until thirty-four megabytes of 3300px JPEG had arrived, which is a long
+     time to look at an empty screen — and the one thing this page is for is
+     looking at things. */
+  let pending = 0;
+  for (const n of (showRefs ? names : names)) {
+    const box = document.createElement('div');
+    box.className = 'pair';
+
+    if (showRefs && S.view !== 'gen') {
+      const c = document.createElement('div');
+      c.className = 'cell';
+      const ph = document.createElement('div');
+      ph.className = 'missing';
+      ph.textContent = 'loading';
+      c.appendChild(ph);
+      const tg = document.createElement('span');
+      tg.className = 'tag'; tg.textContent = 'reference';
+      c.appendChild(tg);
+      box.appendChild(c);
+      pending++;
+      const node = c, place = ph;
+      fillRef(n, node, place, () => { if (--pending === 0) setStatus(names.length); });
+
+      if (S.view === 'refs') {
+        const nm = document.createElement('div');
+        nm.className = 'name';
+        nm.innerHTML = `<b>${n}</b>`;
+        box.appendChild(nm);
       }
-      const tag = document.createElement('span');
-      tag.className = 'tag';
-      tag.textContent = 'reference';
-      box.appendChild(tag);
-      pair.appendChild(box);
     }
 
-    const box = document.createElement('div');
-    box.className = 'cell gen';
-    const { cv, g } = drawGlyph(seed, CELL);
-    box.appendChild(cv);
-    const tag = document.createElement('span');
-    tag.className = 'tag';
-    tag.textContent = 'generated';
-    box.appendChild(tag);
-    pair.appendChild(box);
+    if (showGen && S.view !== 'refs') {
+      const seed = nextSeed();
+      const { cv, g } = renderGlyph(seed, S.cell, cache);
+      const c = document.createElement('div');
+      c.className = 'cell gen';
+      c.appendChild(cv);
+      const tg = document.createElement('span');
+      tg.className = 'tag'; tg.textContent = 'generated';
+      c.appendChild(tg);
+      box.appendChild(c);
+      const nm = document.createElement('div');
+      nm.className = 'name';
+      nm.innerHTML = `<b>${seed}</b> · ${g.blots.length}b ${g.filaments.length}f ${g.specks.length}s`
+                   + ` · peak ${(g.peak * 2).toFixed(2)}R`;
+      box.appendChild(nm);
+    }
 
-    const name = document.createElement('div');
-    name.className = 'name';
-    name.innerHTML = `<b>${seed}</b> · ${g.masses.length} masses · ${g.filaments.length} filaments · ${g.specks.length} specks`;
-    pair.appendChild(name);
+    grid.appendChild(box);
+  }
+  if (pending === 0) setStatus(names.length);
 
-    pairs.appendChild(pair);
+  const url = new URL(location);
+  for (const [k, v] of Object.entries({ view: S.view, cell: S.cell, count: S.count, seed: S.seed,
+    threshold: S.threshold ? '1' : null, bare: S.bare ? null : '0', only: S.only || null,
+    pick: S.pick === 'all' ? null : S.pick })) {
+    if (v === null) url.searchParams.delete(k); else url.searchParams.set(k, v);
+  }
+  history.replaceState(null, '', url);
+}
+
+function setStatus(n) {
+  $('status').textContent = n + (n === 1 ? ' frame' : ' frames');
+}
+
+const loading = new Set();
+function fillRef(name, cellNode, placeholder, done) {
+  const paint = (im) => {
+    cellNode.textContent = '';
+    if (S.threshold) cellNode.appendChild(thresholdCanvas(im));
+    else {
+      const e = document.createElement('img');
+      e.src = im.src;
+      cellNode.appendChild(e);
+    }
+    const tg = document.createElement('span');
+    tg.className = 'tag'; tg.textContent = 'reference';
+    cellNode.appendChild(tg);
+    done && done();
+  };
+  if (imgs.has(name)) { paint(imgs.get(name)); return; }
+  /* Prefer a downscaled copy if one is lying beside the original. The frames
+     are 3300px and the page shows them at a few hundred, so decoding the full
+     one is thirty-odd megabytes of work to produce the same picture. Absent
+     them, the originals are used and everything still works.
+
+       for f in logograms/*.jpg; do magick "$f" -resize 760x760 "logograms/s-$(basename $f)"; done
+  */
+  const small = new Image();
+  small.onload = () => {
+    imgs.set(name, small);
+    (small.decode ? small.decode() : Promise.resolve()).then(() => paint(small)).catch(() => paint(small));
+  };
+  small.onerror = () => {
+    const im = new Image();
+    im.onload = () => {
+      imgs.set(name, im);
+      (im.decode ? im.decode() : Promise.resolve()).then(() => paint(im)).catch(() => paint(im));
+    };
+    im.onerror = () => {
+      const m = document.createElement('div');
+      m.className = 'missing';
+      m.textContent = 'missing';
+      cellNode.textContent = '';
+      cellNode.appendChild(m);
+      done && done();
+    };
+    im.src = 'logograms/' + name + '.jpg';
+  };
+  small.src = 'logograms/s-' + name + '.jpg';
+}
+
+/* ---- controls ---------------------------------------------------------- */
+const pick = $('pick');
+pick.innerHTML = '<option value="all">all</option>'
+  + NAMES.map((n) => `<option value="${n}">${n}</option>`).join('');
+pick.value = S.pick;
+$('view').value = S.view;
+$('cell').value = S.cell;
+$('count').value = S.count;
+$('seed').value = S.seed;
+$('threshold').checked = S.threshold;
+$('bare').checked = S.bare;
+$('only').value = S.only;
+
+$('sub').innerHTML =
+  'All ' + NAMES.length + ' reference frames, and the generator, in one place. '
++ '<b>Interleaved</b> puts them alternately so the eye judges species rather than detail; '
++ '<b>pairs</b> stacks them so it judges weight and shape; <b>references only</b> is the set as a '
++ 'whole, which is the view that shows the structure — a thin circle that is always there, plus '
++ 'discrete blots, plus spikes that leave the blots and nothing else. '
++ '<b>Threshold</b> puts the generated ink through the same hard cut the reference frames have had.';
+
+for (const id of ['view', 'pick', 'cell', 'count', 'seed', 'threshold', 'bare', 'only']) {
+  $(id).addEventListener('change', () => {
+    S.view = $('view').value;
+    S.pick = $('pick').value;
+    S.cell = parseInt($('cell').value, 10);
+    S.count = Math.max(1, Math.min(76, parseInt($('count').value, 10) || 18));
+    S.seed = parseInt($('seed').value, 10) || 1;
+    S.threshold = $('threshold').checked;
+    S.bare = $('bare').checked;
+    S.only = $('only').value;
+    cache.clear();
+    build();
   });
-
-  $('status').textContent = loaded.size
-    ? `${loaded.size}/${IMAGES.length} references loaded`
-    : 'no references fetched';
 }
+$('reroll').addEventListener('click', () => {
+  S.seed = (Math.imul(S.seed, 1664525) + 1013904223) >>> 0;
+  $('seed').value = S.seed;
+  cache.clear();
+  build();
+});
 
-for (const id of ['seeds', 'cell', 'pairing', 'only', 'bare']) {
-  $(id).addEventListener('change', render);
-}
-
-/* Render immediately, then fill the references in as they decode. Six 3300px
-   JPEGs take a second or more, and a tool that shows nothing until then is
-   worse than one that shows the generator straight away. */
-render();
-await probe();
-render();
-
-/* keep the URL honest so a judged frame can be reproduced exactly */
-$('seeds').value = SEEDS.join(',');
-$('cell').value = CELL;
-$('pairing').value = PAIRING;
-$('bare').checked = BARE;
+build();
 </script>
 </body>
 </html>

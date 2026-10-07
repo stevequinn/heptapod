@@ -61,9 +61,21 @@ async function main() {
     }
   }
 
-  const n = (await readdir(OUT)).filter((f) => /\.jpe?g$/i.test(f)).length;
-  console.log(`\n\n${n} files in ${OUT}  (${got} fetched, ${skipped} already present, ${failed} failed)`);
-  console.log(`\nnow open:  http://localhost:3000/tools/reference/compare.html\n`);
+  const names = (await readdir(OUT)).filter((f) => /\.jpe?g$/i.test(f)).sort();
+  /* A manifest, so the review page can discover the set rather than carrying a
+     hardcoded list of thirty-eight names that will silently rot. */
+  await writeFile(join(OUT, 'manifest.json'),
+    JSON.stringify({ repo: REPO, dir: 'ScriptLogoJpegs', names }, null, 1));
+
+  console.log(`\n\n${names.length} files in ${OUT}  (${got} fetched, ${skipped} already present, ${failed} failed)`);
+  console.log(`\nnow open:  http://localhost:3000/tools/reference/compare.html`);
+  console.log(`\nthe frames are 3300px and the review page shows them at a few hundred,`);
+  console.log(`so decoding the full ones is slow. If you have ImageMagick, downscales`);
+  console.log(`beside the originals are picked up automatically and are much faster:`);
+  console.log(`  for f in tools/reference/logograms/*.jpg; do`);
+  console.log(`    case "$f" in */s-*) continue;; esac`);
+  console.log(`    magick "$f" -resize 760x760 "tools/reference/logograms/s-$(basename "$f")"`);
+  console.log(`  done\n`);
 }
 
 main().catch((e) => { console.error('\nfetch failed:', e.message); process.exit(1); });
