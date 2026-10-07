@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 3000",
-    "probe:ca": "node tools/probe-ca.mjs"
+    "probe:ca": "node tools/probe-ca.mjs",
+    "reference": "node tools/reference/fetch-reference.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"

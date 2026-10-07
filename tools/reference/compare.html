@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Logograms — reference against generated</title>
+<style>
+  :root { --paper:#e8ebec; --ink:#12181b; --dim:#7d8a8d; --rule:#c9d0d2; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:var(--paper); color:var(--ink); padding:24px 28px 80px;
+    font:12px/1.5 ui-monospace, Menlo, monospace;
+    letter-spacing:.14em; text-transform:uppercase;
+  }
+  h1 { font-size:12px; font-weight:400; letter-spacing:.28em; margin-bottom:4px; }
+  .sub { color:var(--dim); font-size:10px; letter-spacing:.16em; margin-bottom:6px; }
+  .controls {
+    display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+    padding:12px 0 18px; border-bottom:1px solid var(--rule); margin-bottom:22px;
+    font-size:10px; color:var(--dim); letter-spacing:.14em;
+  }
+  .controls label { display:flex; gap:5px; align-items:center; }
+  .controls input[type=text], .controls select {
+    font:inherit; font-size:10px; letter-spacing:.1em; text-transform:none;
+    padding:4px 6px; border:1px solid var(--rule); background:#fff; color:var(--ink);
+  }
+  .controls input[type=text] { width:6.5em; }
+  .controls input[type=range] { width:110px; }
+  /* the point of the tool: one reference above one generated, same size,
+     in the same column, so the eye compares them directly */
+  .pairs { display:flex; flex-wrap:wrap; gap:26px 22px; }
+  .pair { width:var(--cell); }
+  .cell {
+    width:var(--cell); height:var(--cell);
+    border:1px solid var(--rule); overflow:hidden; position:relative;
+    background:var(--paper);
+  }
+  .cell img { display:block; width:100%; height:100%; object-fit:contain; }
+  .cell canvas { display:block; width:100%; height:100%; }
+  .tag {
+    position:absolute; top:0; left:0;
+    font-size:9px; letter-spacing:.16em; padding:3px 6px;
+    background:rgba(232,235,236,.85); color:var(--dim);
+  }
+  .cell.gen .tag { background:rgba(18,24,27,.82); color:#cfd8da; }
+  .name { padding-top:5px; color:var(--dim); font-size:9.5px; letter-spacing:.1em; }
+  .name b { font-weight:400; color:var(--ink); }
+  .missing {
+    display:grid; place-items:center; height:100%; padding:16px; text-align:center;
+    color:var(--dim); font-size:10px; line-height:1.9;
+  }
+  .missing code { text-transform:none; letter-spacing:0; color:var(--ink); }
+</style>
+</head>
+<body>
+
+<h1>Logograms — reference against generated</h1>
+<p class="sub">
+  Top of each pair: a real logogram frame from the film. Bottom: the generator's
+  output for the seed beneath it.
+</p>
+
+<div class="controls">
+  <label>seeds <input type="text" id="seeds" value="20240515,5874917,1346631033,1316061432,1547784110,914391992" size="34" /></label>
+  <label>mode
+    <select id="mode">
+      <option value="deposit">deposit</option>
+      <option value="whole">whole</option>
+      <option value="procedural">procedural</option>
+    </select>
+  </label>
+  <label>cell <input type="range" id="cell" min="180" max="560" step="20" value="300" /></label>
+  <label>pairing
+    <select id="pairing">
+      <option value="zip">seed i ↔ image i</option>
+      <option value="none">no reference</option>
+    </select>
+  </label>
+  <label>images <input type="text" id="only" placeholder="e.g. Costello1,Time1" size="22" /></label>
+  <span id="status"></span>
+</div>
+
+<div class="pairs" id="pairs"></div>
+
+<script type="module">
+import { makeRingGlyph } from '/src/ink/glyph.js';
+import { mulberry32, ri } from '/src/lib/math.js';
+
+const qs = new URLSearchParams(location.search);
+const $ = (id) => document.getElementById(id);
+const PAPER = '#e8ebec';
+
+/* Curated for variety: the two clearest open arcs, the two heaviest, and two
+   that show a single spur rather than a mass. */
+const DEFAULT_IMAGES = [
+  'Costello1', 'OfferWeapon1', 'WhereIsAbbott1',
+  'IanLouiseMustGo1', 'Earth1', 'Time1',
+];
+
+const IMAGES = (qs.get('only') || DEFAULT_IMAGES.join(',')).split(',').map((s) => s.trim()).filter(Boolean);
+const SEEDS = (qs.get('seeds') || $('seeds').value).split(',').map((s) => parseInt(s.trim(), 10)).filter(Number.isFinite);
+const MODE = qs.get('mode') || $('mode').value;
+const CELL = parseInt(qs.get('cell') || $('cell').value, 10);
+const PAIRING = qs.get('pairing') || $('pairing').value;
+
+const present = new Set();
+async function probe() {
+  await Promise.all(IMAGES.map(async (n) => {
+    try {
+      const r = await fetch(`logograms/${n}.jpg`, { method: 'HEAD' });
+      if (r.ok) present.add(n);
+    } catch { /* not fetched */ }
+  }));
+}
+
+function drawGlyph(seed, cell) {
+  const cv = document.createElement('canvas');
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  cv.width = cell * dpr;
+  cv.height = cell * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = PAPER;
+  ctx.fillRect(0, 0, cell, cell);
+
+  const g = makeRingGlyph(seed, { mode: MODE });
+  /* glyph-local space has the ring radius at 1, so scale straight into the box */
+  const R = cell * 0.40;
+  ctx.save();
+  ctx.translate(cell / 2, cell / 2);
+  ctx.scale(R, R);
+  for (const op of g.ops) op.draw(ctx);
+  ctx.restore();
+  return { cv, g };
+}
+
+function render() {
+  const pairs = $('pairs');
+  pairs.textContent = '';
+  pairs.style.setProperty('--cell', CELL + 'px');
+
+  SEEDS.forEach((seed, i) => {
+    const pair = document.createElement('div');
+    pair.className = 'pair';
+
+    const showRef = PAIRING === 'zip' && IMAGES[i];
+    if (showRef) {
+      const name = IMAGES[i];
+      const box = document.createElement('div');
+      box.className = 'cell';
+      if (present.has(name)) {
+        const img = document.createElement('img');
+        img.src = `logograms/${name}.jpg`;
+        img.alt = name;
+        box.appendChild(img);
+      } else {
+        const miss = document.createElement('div');
+        miss.className = 'missing';
+        miss.innerHTML = `reference not fetched<br><br><code>npm run reference</code>`;
+        box.appendChild(miss);
+      }
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = 'reference';
+      box.appendChild(tag);
+      pair.appendChild(box);
+    }
+
+    const box = document.createElement('div');
+    box.className = 'cell gen';
+    const { cv, g } = drawGlyph(seed, CELL);
+    box.appendChild(cv);
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = 'generated';
+    box.appendChild(tag);
+    pair.appendChild(box);
+
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.innerHTML = `<b>${seed}</b> · ${g.mode} · rule ${g.rule ?? '—'} · ${g.ops.length} ops`;
+    pair.appendChild(name);
+
+    pairs.appendChild(pair);
+  });
+
+  $('status').textContent = present.size
+    ? `${present.size}/${IMAGES.length} references loaded`
+    : 'no references fetched';
+}
+
+for (const id of ['seeds', 'mode', 'cell', 'pairing', 'only']) {
+  $(id).addEventListener('change', render);
+}
+
+await probe();
+render();
+
+/* keep the URL honest so a judged frame can be reproduced exactly */
+$('seeds').value = SEEDS.join(',');
+$('mode').value = MODE;
+$('cell').value = CELL;
+$('pairing').value = PAIRING;
+</script>
+</body>
+</html>

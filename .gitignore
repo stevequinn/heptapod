@@ -2,3 +2,6 @@ node_modules/
 dist/
 *.local
 .DS_Store
+
+# reference logogram frames — film assets, fetched by `npm run reference`
+tools/reference/logograms/

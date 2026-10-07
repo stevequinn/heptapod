@@ -232,12 +232,46 @@ For screenshots and tests. Glyphs are fully determined by their seed, so
 | `?proof=18` | contact sheet of bare logograms, no scene, fog or grade |
 | `?debug` | frame timing, mark progress, ink coverage, the rule in use |
 
-`?proof` is the fastest way to judge a change to the generator: it shows the
-logogram alone on flat ground, the way Wolfram's own figures do. Add
-`&unwrap` for the twelve-section strip under each one, and `&mode=whole` to
-compare against the faithful port.
+`?proof` shows the generator alone on flat ground. For judging likeness, use
+the comparison tool instead — see below.
 
 `npm run probe:ca` re-runs the rule-selection analysis described above.
+
+## Judging the glyphs
+
+The scene tells you how a glyph sits in the film. It does not tell you whether
+it *looks* like a logogram, and the fog, the glass and the grade are actively
+misleading about that — they soften everything, so a wrong stroke weight still
+reads as atmospheric.
+
+So there is a second tool, and it is the one to actually work against:
+
+```bash
+npm run reference       # fetch the 38 real logogram frames
+npm run dev             # then open:
+# http://localhost:3000/tools/reference/compare.html
+```
+
+A real logogram frame above, the generator's output for the seed below, paired
+in the same column at the same size. Query params for seeds, mode, cell size
+and which frames to use; the controls write themselves back to the URL, so a
+frame you are happy with can be reproduced exactly.
+
+Those frames come from `ScriptLogoJpegs` in Wolfram's repository — the 3300px
+originals the logograms were lifted from. They are not committed here: they are
+film assets and they are large. `npm run reference` fetches them into a
+gitignored directory.
+
+The low-resolution "HEPTAPOD LOGOGRAMS WITH TRANSLATION" sheet that circulates
+online is *not* good enough to work from. It hides the three things that decide
+whether a glyph is right:
+
+- **stroke weight** — the real ring is several times heavier than it appears
+  there, and it swells into a blade rather than staying a line
+- **whether the heavy part belongs to the ring or sits beside it** — it belongs
+  to it. One continuous stroke, not a circle with objects attached
+- **what the offshoots are** — short wedges with width, tapering to points,
+  sitting in a fan biased along the direction of travel. Not radial hairs.
 
 ---
 
