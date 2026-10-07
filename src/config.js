@@ -35,28 +35,30 @@ export const GLYPH = {
   /** ring path resolution */
   pathSegments: 216,
   /**
-   * Ring stroke half-width, in ring-radius units. The pair is a range: each
-   * glyph draws one value from it, so glyphs differ in how firmly they were
-   * written.
+   * The hairline: the stroke's half-width where there is no ink, in
+   * ring-radius units.
    *
-   * This is the only knob for ink weight, and it scales the whole glyph
-   * coherently — the deposit swell in `widthAt`, the knot radius, the spatter
-   * and the interior scratches are all `base` times a ratio. So the character
-   * is preserved as you raise it: a faint wide halo pass over a narrow dark
-   * core, heavy where the sector profile says there is ink.
-   *
-   * The practical ceiling is around 0.030. Past it the deposits stop reading
-   * as bursts of ink and start reading as solid black lumps, because the knot
-   * and spatter grow with `base` while the CA fuzz is sized independently by
-   * `CA.cell` — so the fuzz stops being finer than the mass it sits in.
+   * Measured on the 3300px originals rather than the translation sheet: on a
+   * 75px-radius ring the thin part of a real logogram is ~3.5px wide, i.e.
+   * ~0.023 of the radius. The blade peaks around 0.147 — a swell of roughly
+   * 6.4x, which is what BRUSH.swellMax expresses.
    */
-  stroke: [0.021, 0.029],
+  stroke: [0.021, 0.027],
+
+  /**
+   * Ring radius wobble, as three amplitudes (low, mid, high frequency).
+   *
+   * Much smaller than a hand-drawn circle would suggest. These logograms were
+   * compass-guided and the originals are strikingly round; an earlier version
+   * at twice these amplitudes read as a wobbly circle rather than a glyph.
+   */
+  wobble: [0.055, 0.022, 0.010],
   /** deposits per glyph */
   deposits: [2, 3],
   /** interior ink haze. This is a whisper: the film's haze barely tints the
    *  circle, and a large or strong one turns the whole glyph into a grey
    *  smudge with the ring drawn on top of it. */
-  plumeAlpha: [0.028, 0.058],
+  plumeAlpha: [0.004, 0.011],
   /** plume radius, in ring radii — deliberately well under 1, so the haze
    *  clings to one side instead of filling the circle */
   plumeRadius: [0.40, 0.68],
@@ -73,9 +75,11 @@ export const GLYPH = {
  * it they flood the frame.
  */
 export const CA = {
-  /** Wolfram's hand-picked good rules, most filamentary first */
-  rules: [175622, 175780, 174794, 175950, 174826, 207594,
-          174688, 175780, 174826, 175164, 176632, 47808, 207594, 256576],
+  /* The rule numbers live in ca/rules.js, not here. An earlier copy of the list
+     sat in this config and drifted: it went on naming 174688 and 256576 after
+     both had been proved dead, and nothing read it anyway. One list, in the
+     module that owns it. */
+
   /** Size of one automaton cell, in ring radii. This is the resolution of the
    *  growth: at 0.012 there are ~80 cells per ring radius, which is fine
    *  enough for the filaments to read as hairs. Coarser than about 0.03 and
@@ -84,16 +88,27 @@ export const CA = {
   /** grid cells across one deposit patch; must be at least
    *  2 * (reach / cell + margin) */
   patch: 112,
-  /** dead margin around the growth, in cells */
+  /** dead margin around the growth, in cells. Not decorative: growth.js asserts
+   *  the patch is big enough for `reach` plus this, because a patch that is too
+   *  small clips the growth at a square boundary and the clipping reads as a bug
+   *  in the brush rather than as a misconfiguration. */
   margin: 10,
   /** steps to run */
   steps: 34,
-  /** growth reach as a fraction of the ring radius */
-  reach: 0.34,
+  /**
+   * How far the automaton's growth reaches, as a fraction of the ring radius.
+   *
+   * This is the growth *envelope*, not the stroke's weight — the distinction
+   * matters, because the growth has to reach well past the blade for the
+   * bristles to have anywhere to go. Bounded at the same value as the blade
+   * (which is what it used to be) they were all emitted inside the mass and
+   * completely hidden by it.
+   *
+   * How much of that envelope counts as *weight* is BRUSH.bladeReach.
+   */
+  reach: 0.30,
   /** how ragged the reach boundary is; 0 = a circle, which reads as artificial */
   wobble: 0.5,
-  /** weight of a traced filament */
-  detail: 1,
 
   /** steps for the whole-glyph mode, which seeds from the entire rasterised
    *  logogram as ca-01.nb does. Wolfram ran 700; at this grid that is ~40ms,
@@ -101,6 +116,83 @@ export const CA = {
    *  rules reach their visual form well before 700 and then churn, so 150
    *  gives the same character for a fifth of the cost. */
   wholeSteps: 150,
+};
+
+/**
+ * The brush.
+ *
+ * One continuous stroke whose weight is the primary variable. The distinction
+ * from an emitter is the whole point: a radial isotropic spray is the grammar
+ * of spatter, and none of the reference glyphs look like that. The offshoots
+ * are wedges with width, tapering to points, fanning along the direction of
+ * travel.
+ *
+ * Every number here was read off the originals — see tools/reference.
+ */
+export const BRUSH = {
+  /** peak blade half-width, as a multiple of the hairline. The ratio between
+   *  the thin part of the stroke and its widest is the most legible thing about
+   *  a logogram, and it is strikingly consistent across the references: on a
+   *  75px-radius ring the hairline is ~3.5px and the blade ~22px, so ~6.4x. */
+  swellMax: 6.4,
+
+  /** the measured ink depth that maps to the peak blade half-width.
+   *
+   * Below CA.reach on purpose: a growth that fills the whole envelope is
+   * extreme, and treating it as merely "full" would put every glyph's blade at
+   * maximum and throw away the variation. A deposit whose automaton barely grew
+   * gets a thin blade, which is the variation worth having. */
+  bladeReach: 0.19,
+
+  /** how much of a deposit's arc is fat, as an exponent on the automaton's
+   *  measurement. Above 1 broadens the blade; a linear map leaves the swell
+   *  pinched around one measurement, and the references have fat *runs* —
+   * between 60 and 100 degrees of arc in every frame I measured. */
+  swellGamma: 2.6,
+
+  /** how far the bristles separate, at the hairline and at the blade. See
+   *  BRUSH.strips — this is the curve that decides whether the ring reads as
+   *  ink or as a faded photocopy of one. */
+  tear: [0.16, 0.42],
+
+  /** below this noise value the tip skipped the glass and the streak is cut */
+  skip: 0.30,
+
+  /** lengthwise streaks per band fill. This is the dry-brush striation: eight
+   *  reads as a brush, three as a comb, and one is a solid polygon again. */
+  strips: 8,
+
+  /** how ragged the band's edge is */
+  ragged: 0.34,
+
+  /** Angular half-width of a deposit's arc, in radians. Wider than the ring's
+   *  thirty-degree sectors, because a blade in the references runs to well over
+   *  a quarter of the circle — the long axis being the tangent is what stops it
+   *  reading as a lump. */
+  arcSpan: 0.55,
+
+  /** fine bristles leaving a wet mass, per deposit. The originals carry these —
+   * a rough starburst of hairs wherever the ink pooled — and they are the
+   * automaton's own growth used as texture rather than as the logogram itself,
+   *  which is what it is actually good at.
+   *
+   *  Counted in tens, not hundreds. Every exposed cell in the growth emits one,
+   *  and at 400 they piled into a solid fur pelt that read as a cloud stuck to
+   *  the ring rather than as separate hairs. The references show 30 to 60
+   *  distinct ones per mass, most of them short. */
+  bristles: [26, 74],
+
+  /** offshoots per deposit. The originals run from a single spur to a fan of
+   *  ten or so ("Ian Louise Must Go"), so this is deliberately wide. */
+  offshoots: [3, 10],
+  offshootLength: [0.09, 0.34],
+  /** how far off the tangent an offshoot may point, radians */
+  offshootCone: 0.85,
+  /** offshoot base half-width, as a fraction of the local stroke weight. The
+   *  top of this range used to be 0.60, which at a 0.15 blade is a 9px-wide
+   *  black wedge on a 75px ring — a fin, not a spur. Even 0.30 was too much:
+   *  an offshoot in the references is a thin sharp stroke, not a petal. */
+  offshootWidth: [0.06, 0.17],
 };
 
 export const UNWRAP = {

@@ -100,34 +100,75 @@ zero new cells, which cost a full automaton run to discover the hard way.
 Wolfram seeds from the **entire binarised logogram** and runs **700 steps**.
 The result is self-similar, symmetric growth spreading from the whole circle —
 which is what the `.gif`/`.mov` exports in that repository actually show. It is
-not the film's irregular, localised splatter, and no faithful port of his
-pipeline produces the film's splatter.
+not the film's irregular, localised growth, and no faithful port of his pipeline
+produces the film's growth.
 
 So there are two targets, and they are not the same thing. Both are reachable
 on `G`:
 
 | mode | seeds from | character |
 |---|---|---|
-| `deposit` | a disc of ink at each deposit | localised, irregular — closest to the film |
-| `whole` | the entire rasterised logogram, as `ca-01.nb` does | self-similar, spreading from the whole circle |
+| `deposit` | a disc of ink at each deposit | one rule per deposit, independent — closest to the film |
+| `whole` | the entire rasterised logogram, as `ca-01.nb` does | one rule for the whole glyph, so the deposits are correlated |
 | `procedural` | nothing — no automaton | — |
 
-`deposit` is the default. It uses Wolfram's rules as a *texture source* for
-film-shaped bursts, and needs a **reach budget** to stay local: cells outside a
-disc around the deposit are forced dry each step. That clipping substitutes for
-a property his filter appeared to select for and did not. The clip boundary is
-displaced by fbm, sampled into a 512-entry angular lookup — a clean circle
-reads instantly as artificial, and it is the one shape ink never has.
+`deposit` is the default and needs a **reach budget** to stay local: cells
+outside a disc around the deposit are forced dry each step. That clipping
+substitutes for a property his filter appeared to select for and did not. The
+clip boundary is displaced by fbm, sampled into a 512-entry angular lookup — a
+clean circle reads instantly as artificial, and it is the one shape ink never
+has. `growth.js` asserts the patch is large enough for `reach` plus a margin,
+because a patch that is too small clips growth square and the clipping reads as
+a fault in the brush rather than as a misconfiguration.
 
 `whole` needs no clipping, since the rules are bounded by the frame, but its
 step count is a compromise: 700 steps at this grid is ~40ms, a visible stall on
 click against a three-second draw. `CA.wholeSteps` is 150, which gives the same
-character because these rules reach their visual form early and then churn.
+character because these rules reach their visual form early and then churn. Its
+seed is the *plain* glyph — a thin ring and a disc at each deposit — not the
+finished one, which would only redraw the ring in a different texture.
 
 `ca/rules.js` ranks the rules by how filamentary they grow — the fraction of
 cells with exactly one ink neighbour, i.e. how many free tips they have. Only
 the top of Wolfram's list reads as tendrils; `192184` grows into a near-solid
 mass and sits in the pool at a token weight.
+
+The rule weights are **square-rooted, not linear**. Weighting by rank directly
+put half of all glyphs on a single rule, which was defensible while the
+automaton supplied the logogram's geometry — its structure was the whole look.
+It is not defensible now that the automaton supplies a measurement and some
+bristles: the rule is one source of variety among several, and drawing half the
+seeds from one of eleven rules throws that away.
+
+### What the automaton is actually for
+
+Worth stating plainly, because it changed twice and the reason is not obvious.
+
+A cellular automaton is a grid. Ink is not. Tracing growth into geometry — one
+hair per surviving cell — produces a radial isotropic spray, which is the
+grammar of spatter, and none of the reference logograms look like that. It was
+tried, it read as spatter stuck to a thin wire, and it was wrong.
+
+So the automaton now does **two measurements, no geometry**:
+
+- **width** — how deep is the ink at each angle around a deposit? That becomes
+  the stroke's half-width. A grid is a poor way to draw ink and a perfectly good
+  way to measure it.
+- **texture** — the same run's fringe cells emit the fine bristles a loaded
+  brush leaves as it lifts off a wet mass.
+
+Both come from one run, so the rule influences shape and surface together. This
+is also what self-similar growth is *for*: a rough starburst of hairs leaving a
+mass is precisely what radial CA growth looks like when you use it as texture.
+
+The three quantities that control this are deliberately separate, and conflating
+them is what produced the earlier glumps:
+
+| | | |
+|---|---|---|
+| `CA.reach` | the growth *envelope* | 0.30 ring radii — has to reach well past the stroke, or the bristles have nowhere to go |
+| `BRUSH.bladeReach` | how much envelope counts as *weight* | 0.19 — below `reach` on purpose, so a growth that barely grew gets a thin blade |
+| `GLYPH.stroke` × `BRUSH.swellMax` | the stroke's own peak | the hairline, and a multiple of it |
 
 ### The polar unwrap
 
@@ -179,10 +220,11 @@ src/
   ca/
     rules.js       Wolfram's rules, what survives his filter, and why
     automaton.js   the totalistic stepper
-    growth.js      local growth: reach mask -> run -> trace into ink
-    whole.js       faithful growth: rasterise the logogram, run, trace
+    growth.js      growth -> two measurements: ink depth per angle, and bristles
+    whole.js       the whole-glyph run, seeded from the rasterised logogram
   ink/
     glyph.js       one logogram as a list of weighted draw ops
+    brush.js       the stroke: width profile, band, striation, bristles, spurs
     smoke.js       the interior ink haze
     writer.js      the ink buffer, and the life of each inscription
   unwrap/
@@ -203,6 +245,15 @@ A glyph is a list of weighted `ops` drawn progressively, so the ink appears to
 be laid down by a limb rather than appearing whole. `ops` are plain closures
 over a 2D context, which is what lets the unwrap view reuse them unchanged
 through a warping proxy.
+
+**The order in `makeRingGlyph` matters.** The automaton runs *before* the band
+is built, because the band *is* the stroke and the stroke's weight is what the
+automaton measured. An earlier version drew the ring first and laid the
+deposits on afterwards, which is what forced a separate band and with it the
+glump-on-a-wire look.
+
+**`tools/reference/compare.html`** is the other file worth knowing about. It is
+a dev tool, served by `npm run dev`, not a build entry.
 
 ---
 
@@ -253,9 +304,14 @@ npm run dev             # then open:
 ```
 
 A real logogram frame above, the generator's output for the seed below, paired
-in the same column at the same size. Query params for seeds, mode, cell size
-and which frames to use; the controls write themselves back to the URL, so a
-frame you are happy with can be reproduced exactly.
+in the same column at the same size. Query params for seeds, mode, cell size and
+which frames to use; the controls write themselves back to the URL, so a frame
+you are happy with can be reproduced exactly.
+
+**Ink only** (`?bare=1`) drops the dry-pass ops — interior haze, ghost
+scratches, dry texture. The reference frames are cutouts of ink on white with
+none of that on them, so leaving it in makes the comparison unfair; but it is
+part of the glyph in the scene, so both views are worth having.
 
 Those frames come from `ScriptLogoJpegs` in Wolfram's repository — the 3300px
 originals the logograms were lifted from. They are not committed here: they are
@@ -263,15 +319,26 @@ film assets and they are large. `npm run reference` fetches them into a
 gitignored directory.
 
 The low-resolution "HEPTAPOD LOGOGRAMS WITH TRANSLATION" sheet that circulates
-online is *not* good enough to work from. It hides the three things that decide
-whether a glyph is right:
+online is *not* good enough to work from. Working from it produced three
+wrong conclusions, each of which cost a rewrite:
 
 - **stroke weight** — the real ring is several times heavier than it appears
-  there, and it swells into a blade rather than staying a line
+  there, and it swells into a blade rather than staying a line. On a 75px-radius
+  ring the hairline is ~3.5px and the heaviest regions run 25–32px, so 7–9×.
 - **whether the heavy part belongs to the ring or sits beside it** — it belongs
-  to it. One continuous stroke, not a circle with objects attached
-- **what the offshoots are** — short wedges with width, tapering to points,
-  sitting in a fan biased along the direction of travel. Not radial hairs.
+  to it. One continuous stroke. Drawing a thin ring and then laying a filled
+  band on top of it reads as a glump stuck to a wire; that was an architectural
+  error, not a parametric one, and no amount of tuning the band fixed it.
+- **what grows off the fat regions** — not one thing but two, and they were
+  conflated. Short heavy wedges with width, tapering to sharp points. *And* a
+  starburst of fine bristles, which is what the automaton is actually good at.
+  An earlier version had only the first and called the second "spatter".
+- **surface** — real ink over its own footprint is striated, with thin gaps
+  running along the stroke where bristles did not touch. A uniformly filled
+  band reads instantly as vector. This is `BRUSH.strips`, and the curve in
+  `striations()` matters more than the noise: remapped linearly, a mean-0.5
+  noise gives a mean alpha near 0.4 and the whole ring turns into a faded
+  photocopy.
 
 ---
 
@@ -296,6 +363,25 @@ ordinary alpha compositing darkens the same pixels by the same rule.
 Also worth knowing: the automaton's grid becomes visible in the ink above
 about 0.03 ring-radii per cell. `CA.cell` is 0.012, which puts ~80 cells per
 ring radius.
+
+Measured build cost per glyph, median of seven:
+
+| mode | build |
+|---|---|
+| `deposit` | ~8ms |
+| `procedural` | ~6ms |
+| `whole` | ~20ms |
+
+`whole` is the automaton running 150 steps over the whole rasterised glyph, and
+it is the reason that mode is not the default.
+
+### Cost of the striation
+
+Drawing the band as eight longitudinal strips instead of one filled polygon
+multiplies the fill count by eight — 54 chunks × 8 = 432 fills per glyph, where
+there used to be 54. It measured as roughly 1ms of the 8ms, which is the right
+trade for the difference between ink and a vector shape. `BRUSH.strips` is the
+knob: eight reads as a brush, three as a comb, one as a solid polygon again.
 
 ---
 

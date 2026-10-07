@@ -29,9 +29,14 @@ export function renderProofSheet(count, { seed = 1, mode = 'deposit', unwrap = f
   document.body.style.cssText =
     'background:' + INK_BG + ';overflow:auto;margin:0;padding:28px;cursor:auto';
 
-  const cols = Math.min(count, unwrap ? 4 : 6);
+  /* Fit the columns to the viewport rather than to the requested count.
+     `repeat(n, 300px)` overflowed on any window narrower than n*300px, which
+     silently clipped the right-hand column — on a proof sheet the clipped
+     column is the one you were looking at. */
   const cell = 300;
-  const rows = Math.ceil(count / cols);
+  const avail = Math.max(cell, window.innerWidth - 56);
+  const maxCols = Math.max(1, Math.floor(avail / cell));
+  const cols = Math.min(count, unwrap ? 4 : 6, maxCols);
   const stripH = unwrap ? 74 : 0;
 
   const sheet = document.createElement('div');

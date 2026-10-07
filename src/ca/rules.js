@@ -88,7 +88,17 @@ const RANK = new Map([
  */
 export function pickRule(rng) {
   const pool = PASSING_RULES.filter((r) => (RANK.get(r) ?? 0) > 0);
-  const weights = pool.map((r) => RANK.get(r));
+  /* Square-rooted, not linear.
+     RANK orders the rules by how filamentary they are, which is the right
+     preference — but weighting by it linearly put half of all glyphs on a
+     single rule. That was defensible while the automaton was supplying the
+     logogram's geometry, because its structure was the whole look. It is not
+     defensible now that the automaton supplies a measurement and some bristles:
+     the rule's job is to be one source of variety among several, and drawing
+     half the seeds from one of eleven rules throws that away. Flattening the
+     weights leaves the ordering as a mild bias and takes the top rule from 49%
+     to about a fifth. */
+  const weights = pool.map((r) => Math.sqrt(RANK.get(r) ?? 0));
   const total = weights.reduce((a, b) => a + b, 0);
   let t = rng() * total;
   for (let i = 0; i < pool.length; i++) {

@@ -26,7 +26,7 @@
 import { CA } from '../config.js';
 import { grow } from './automaton.js';
 import { pickRule } from './rules.js';
-import { TAU, mulberry32, fbm1 } from '../lib/math.js';
+import { TAU } from '../lib/math.js';
 
 /** grid across the glyph, in cells. 128 puts a cell just under 0.02 ring radii
  *  at a half-extent of 1.25, which is fine — the trace randomises hair origins
@@ -50,17 +50,30 @@ function scratchCtx() {
   return c;
 }
 
+/** grid cell -> glyph-local xy, matching measureProfile's expectation */
+export function project(x, y) {
+  return [(x - CENTRE + 0.5) / SCALE, -(y - CENTRE + 0.5) / SCALE];
+}
+
 /**
- * Rasterise a glyph's ring and deposits into a binary grid.
+ * Rasterise a logogram seed into a binary grid.
  *
  * Drawn rather than evaluated analytically: the nearest-point test over 216
  * path samples for every one of 16k cells is ~3.5M distance computations, and
  * a canvas stroke plus one small readback is an order of magnitude cheaper.
  *
- * @param {object} glyph
+ * The seed is the *plain* glyph — a thin ring and a disc at each deposit — not
+ * the finished one. It has to be, because in this mode the automaton's
+ * measurement is what makes the stroke heavy: seeding it from an already-fat
+ * ring would just redraw the ring in a different texture.
+ *
+ * @param {object} o
+ * @param {Array<{x:number,y:number}>} o.path  ring samples
+ * @param {number} o.hairline  seed stroke half-width, ring radii
+ * @param {Array<{a:number, spread:number}>} o.blots
  * @returns {Uint8Array} N*N, 1 = ink
  */
-export function rasteriseGlyph(glyph) {
+export function rasteriseSeed({ path, hairline, blots }) {
   const c = scratchCtx();
   c.fillStyle = '#fff';
   c.strokeStyle = '#fff';
@@ -69,13 +82,15 @@ export function rasteriseGlyph(glyph) {
   c.translate(CENTRE, CENTRE);
   c.scale(SCALE, -SCALE);        // glyph y is down, grid y is up
 
-  for (const op of glyph.ops) {
-    if (!op.isRing) continue;   // only the stroke itself is the seed
-    op.draw(c);
+  c.beginPath();
+  for (let i = 0; i < path.length; i++) {
+    const p = path[i];
+    if (i === 0) c.moveTo(p.x, p.y); else c.lineTo(p.x, p.y);
   }
+  c.lineWidth = Math.max(1.2, hairline * SCALE * 2);
+  c.stroke();
 
-  // deposits are part of the logogram's ink, so they seed too
-  for (const b of glyph.blots) {
+  for (const b of blots) {
     c.beginPath();
     c.arc(Math.cos(b.a), Math.sin(b.a), b.spread * 1.6, 0, TAU);
     c.fill();
@@ -90,75 +105,29 @@ export function rasteriseGlyph(glyph) {
 }
 
 /**
- * Run a rule over a rasterised glyph and return strokes for the new ink.
+ * Run one of Wolfram's rules over the whole rasterised glyph.
  *
- * @param {Uint8Array} seed  the rasterised logogram
- * @param {function} rng    seeded PRNG
- * @param {number} seedNum  glyph seed, for the trace jitter
- * @returns {{strokes: Array, pools: Array, rule: number, fresh: number}}
+ * One rule for the entire logogram, which is what makes this mode different in
+ * kind from `deposit`: the deposits' blades are all produced by the same rule
+ * on the same field, so they are correlated with each other instead of being
+ * independent accidents. Wolfram's exports show self-similar growth spreading
+ * from the entire circle, and this is the version that does that.
+ *
+ * @param {Uint8Array} seed
+ * @param {function} rng
+ * @returns {{grid: Uint8Array, rule: number, fresh: number}}
  */
-export function growWhole(seed, rng, seedNum) {
+export function growGrid(seed, rng) {
   const rule = pickRule(rng);
   const out = grow(rule, seed, N, N, CA.wholeSteps, null);
 
-  /* Only cells that were not ink in the seed. Without this the result is just
-     the ring redrawn in a different texture, which tells you nothing — the
-     interesting thing is what the automaton added. */
-  const fresh = new Uint8Array(N * N);
-  let count = 0;
-  for (let i = 0; i < fresh.length; i++) {
-    if (out[i] && !seed[i]) { fresh[i] = 1; count++; }
-  }
+  /* Only cells that were not ink in the seed. Without this the measurement
+     just redraws the ring in a different texture, which tells you nothing —
+     the interesting thing is what the automaton added. */
+  let fresh = 0;
+  for (let i = 0; i < out.length; i++) if (out[i] && !seed[i]) fresh++;
 
-  const noise = fbm1(mulberry32(seedNum ^ 0x5bf03635), 3);
-  const strokes = [];
-  const pools = [];
-  const cell = 1 / SCALE;                 // one cell, in ring radii
-  const at = (x, y) => (x < 0 || y < 0 || x >= N || y >= N ? 0 : fresh[y * N + x]);
-
-  for (let y = 0; y < N; y++) {
-    for (let x = 0; x < N; x++) {
-      if (!fresh[y * N + x]) continue;
-
-      let nb = 0;
-      for (let oy = -1; oy <= 1; oy++)
-        for (let ox = -1; ox <= 1; ox++)
-          if ((ox || oy) && at(x + ox, y + oy)) nb++;
-      const exposed = 8 - nb;
-
-      // grid -> glyph space, y up, and randomised inside the cell
-      const gx = (x - CENTRE + (rng() - 0.5) * 1.1) / SCALE;
-      const gy = -(y - CENTRE + (rng() - 0.5) * 1.1) / SCALE;
-
-      if (exposed <= 2) {
-        pools.push({
-          x: gx, y: gy,
-          r: cell * (1.1 + rng() * 0.7),
-          lobes: 5 + Math.floor(rng() * 3),
-          rough: 0.34 + rng() * 0.32,
-          rot: rng() * TAU,
-          a: (0.10 + 0.16 * noise(x * 0.05, y * 0.05)) * (0.5 + 0.6 * rng()),
-        });
-        continue;
-      }
-
-      // direction biased along the growth, which here is outward from the ring
-      const r = Math.hypot(gx, gy) || 1e-4;
-      const bias = 0.30 + 0.45 * (exposed / 8);
-      const a = Math.atan2(gy, gx) + (rng() - 0.5) * TAU * (1 - bias);
-      const len = cell * (1.6 + 3.0 * (exposed / 8)) * (0.5 + 0.9 * rng());
-      strokes.push({
-        x0: gx, y0: gy,
-        x1: gx + Math.cos(a) * len, y1: gy + Math.sin(a) * len,
-        w: cell * 0.30 * (0.4 + 0.9 * (1 - exposed / 8)),
-        a: (0.05 + 0.16 * noise(x * 0.03, y * 0.03)) * (0.25 + 0.75 * exposed / 8),
-        curl: (rng() - 0.5) * 0.6,
-      });
-      void r;
-    }
-  }
-
-  return { strokes, pools, rule, fresh: count };
+  return { grid: out, fresh, rule };
 }
 
 export const WHOLE = { N, EXTENT, SCALE };

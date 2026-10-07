@@ -77,6 +77,7 @@
     </select>
   </label>
   <label>images <input type="text" id="only" placeholder="e.g. Costello1,Time1" size="22" /></label>
+  <label><input type="checkbox" id="bare" /> ink only</label>
   <span id="status"></span>
 </div>
 
@@ -102,13 +103,21 @@ const SEEDS = (qs.get('seeds') || $('seeds').value).split(',').map((s) => parseI
 const MODE = qs.get('mode') || $('mode').value;
 const CELL = parseInt(qs.get('cell') || $('cell').value, 10);
 const PAIRING = qs.get('pairing') || $('pairing').value;
+const BARE = qs.get('bare') === '1';
 
-const present = new Set();
+/* Load the frames properly rather than probing with HEAD. A HEAD request
+   confirms the file exists but returns before the browser has decoded anything,
+   so the <img> elements render blank for a moment and a screenshot taken early
+   shows empty boxes — which is exactly the one case where this tool must not
+   lie. `decode()` resolves once the pixels are there. */
+const loaded = new Map();
 async function probe() {
   await Promise.all(IMAGES.map(async (n) => {
     try {
-      const r = await fetch(`logograms/${n}.jpg`, { method: 'HEAD' });
-      if (r.ok) present.add(n);
+      const img = new Image();
+      img.src = `logograms/${n}.jpg`;
+      await img.decode();
+      loaded.set(n, img.src);
     } catch { /* not fetched */ }
   }));
 }
@@ -129,7 +138,11 @@ function drawGlyph(seed, cell) {
   ctx.save();
   ctx.translate(cell / 2, cell / 2);
   ctx.scale(R, R);
-  for (const op of g.ops) op.draw(ctx);
+  /* `bare` drops the dry-only ops: the interior haze, the ghost scratches and
+     the dry-brush pass. The reference frames are cutouts of ink on white with
+     none of that on them, so leaving it in makes the comparison unfair — but it
+     is part of the glyph in the scene, so both views are worth having. */
+  for (const op of g.ops) if (!BARE || !op.dryOnly) op.draw(ctx);
   ctx.restore();
   return { cv, g };
 }
@@ -148,9 +161,9 @@ function render() {
       const name = IMAGES[i];
       const box = document.createElement('div');
       box.className = 'cell';
-      if (present.has(name)) {
+      if (loaded.has(name)) {
         const img = document.createElement('img');
-        img.src = `logograms/${name}.jpg`;
+        img.src = loaded.get(name);
         img.alt = name;
         box.appendChild(img);
       } else {
@@ -184,15 +197,19 @@ function render() {
     pairs.appendChild(pair);
   });
 
-  $('status').textContent = present.size
-    ? `${present.size}/${IMAGES.length} references loaded`
+  $('status').textContent = loaded.size
+    ? `${loaded.size}/${IMAGES.length} references loaded`
     : 'no references fetched';
 }
 
-for (const id of ['seeds', 'mode', 'cell', 'pairing', 'only']) {
+for (const id of ['seeds', 'mode', 'cell', 'pairing', 'only', 'bare']) {
   $(id).addEventListener('change', render);
 }
 
+/* Render immediately, then fill the references in as they decode. Six 3300px
+   JPEGs take a second or more, and a tool that shows nothing until then is
+   worse than one that shows the generator straight away. */
+render();
 await probe();
 render();
 
@@ -201,6 +218,7 @@ $('seeds').value = SEEDS.join(',');
 $('mode').value = MODE;
 $('cell').value = CELL;
 $('pairing').value = PAIRING;
+$('bare').checked = BARE;
 </script>
 </body>
 </html>
