@@ -105,18 +105,7 @@ export function queryFlags() {
     click: qs.has('click'),
     debug: /[?&]debug/.test(location.search),
     unwrap: qs.has('unwrap'),
-    /** skip automaton growth, to compare against the procedural deposits */
-    noCA: qs.has('noca'),
-    /**
-     * How the ink deposits are grown. See `main.js` — these are different
-     * targets, not preferences, so all three are reachable.
-     *   deposit    a disc of ink at each deposit grows outward (film-like)
-     *   whole      the whole rasterised logogram seeds one automaton (ca-01)
-     *   procedural no automaton
-     */
-    mode: ['deposit', 'whole', 'procedural'].includes(qs.get('mode'))
-      ? qs.get('mode')
-      : (qs.has('noca') ? 'procedural' : 'deposit'),
+    seed: Number.isFinite(+qs.get('seed')) ? (parseInt(qs.get('seed'), 10) >>> 0) : null,
     /** render a contact sheet of bare logograms and skip the scene entirely */
     proof: qs.has('proof')
       ? Math.max(1, Math.min(48, parseInt(qs.get('proof'), 10) || 18))

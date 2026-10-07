@@ -7,11 +7,13 @@
    is why this does not need a worker. The glyph draw that consumes it takes
    three seconds.
 
-   Edges read as empty rather than wrapping. Each patch is built with a margin
-   of dead cells around the growth area precisely so the automaton never has
-   its behaviour altered by meeting the grid edge — without that margin the
-   reachable region picks up a hard circular boundary and the growth reads as
-   a disc instead of as ink.
+   Edges wrap. That is only safe because every patch is built with a margin of
+   dead cells around the growth area, so the automaton never meaningfully meets
+   the grid edge — the margin is what stops the reachable region picking up a
+   hard circular boundary. Without it the growth reads as a disc rather than as
+   ink. (The header used to claim the edges read as empty while the code wraps;
+   with the margin in place the two are equivalent in practice, but the comment
+   was describing something the code did not do.)
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { ruleTable } from './rules.js';
@@ -26,7 +28,7 @@ import { ruleTable } from './rules.js';
  * testing the interior column separately brings it to a couple of
  * milliseconds.
  */
-export function stepInto(a, b, w, h, table, keep) {
+function stepInto(a, b, w, h, table, keep) {
   for (let y = 0; y < h; y++) {
     const rowC = y * w;
     const rowU = (y === 0 ? h - 1 : y - 1) * w;
@@ -69,11 +71,18 @@ export function stepInto(a, b, w, h, table, keep) {
  * @param {Uint8Array|null} [keep]  reach mask; cells where keep[i] === 0 are
  *   forced dry after every step. This is the reach budget — without it these
  *   rules are self-sustaining and flood the frame within a dozen steps.
- * @returns {Uint8Array} the final grid; `seed` is left untouched
+ * @returns {Uint8Array} the final grid
  */
 export function grow(rule, seed, w, h, steps, keep = null) {
   const table = ruleTable(rule);
-  let a = seed;
+  /* Copy the seed. The double-buffer swap below hands the caller's array back
+     as the write target on the second generation, so without this `grow`
+     scribbles over its own input — which it did, while the doc comment above
+     claimed the opposite. Nothing noticed for a long time because every caller
+     happened to pass a freshly built grid and then read only the return value.
+     tools/probe-ca.mjs passed a seed twice and compared against it, which is
+     what finally surfaced it. One grid copy is 12kB on a typical patch. */
+  let a = Uint8Array.from(seed);
   let b = new Uint8Array(w * h);
   for (let s = 0; s < steps; s++) {
     stepInto(a, b, w, h, table, keep);

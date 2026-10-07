@@ -3,9 +3,13 @@
 A view into an observation window, and the heptapods' logographic script drawn
 on the fogged glass in front of you. Click and they answer.
 
-Built on the visual language Christopher Wolfram reverse-engineered for the
-2016 film *Arrival*, published in
+Built on the visual language of the heptapod logograms from the 2016 film
+*Arrival*, and on the twelve-section decomposition Christopher Wolfram used to
+analyse them in
 [Arrival-Movie-Live-Coding](https://github.com/WolframResearch/Arrival-Movie-Live-Coding).
+The cellular automaton in that repository is also here, but as an experiment
+rather than as the generator — the reasoning is in
+[What came out of Wolfram's notebooks](#what-came-out-of-wolframs-notebooks).
 
 ```bash
 npm install
@@ -23,8 +27,11 @@ Wolfram was working from logogram JPEGs that had been isolated in Photoshop, and
 the notebooks measure, cluster, unwrap and compare those images. There is no
 generator in there to port.
 
-Three things in it *are* generative or structural, and those are what this app
-is built on.
+One thing in it is genuinely structural and is what this app generates from —
+the twelve-section decomposition. The other generative-looking thing, the
+cellular automaton, turns out to be an experiment performed *on* the logograms
+rather than a model of them, and it is not in the render path. That distinction
+cost three rewrites to establish; see below.
 
 ### The twelve-section structure
 
@@ -45,130 +52,148 @@ and every sector lands within 15% of every other — the twelve-section structur
 is then doing nothing at all while appearing to. `smoothstep(0.40, 0.62, v)`
 expands the useful band back out.
 
-### The cellular automaton
+### The cellular automaton — kept, but not in the render path
 
-`ca-01.nb` is the actual engine:
+`ca-01.nb` runs a two-colour, radius-one, **totalistic** automaton over a
+binarised logogram: the next value of a cell depends only on how many of its
+eight neighbours are ink, and on the cell's own value. Eighteen bits of rule
+number cover all eighteen cases, and Wolfram generated random rules and kept
+thirteen. Those are in `ca/rules.js` and the stepper is `ca/automaton.js`.
+
+It is a genuinely interesting piece of code and it was, for a long time, the
+centre of this project. **It is not used to draw anything any more**, and the
+reason is worth stating carefully because the pull toward it is strong.
+
+#### The reference figures are the *input* to that notebook
+
+The obvious reading of the repository is that `ScriptLogoJpegs` are examples of
+what the CA produces. The opposite is true, and the code says so:
 
 ```wolfram
-CellularAutomaton[{rule, {2, {{2,2,2},{2,1,2},{2,2,2}}, {1,1}}, 0},
-                  {ImagePad[Binarize[...], 10, Black], 0}, steps]
+i2 = SetAlphaChannel[#, ColorNegate@#]& /@ (ImageResize[#, 50]&) /@
+     Import /@ (logogramDirectory<>#&) /@
+     Select[StringMatchQ[#, ___~~".jpg"]&] @ Import@logogramDirectory
 ```
 
-A two-colour, radius-one, **totalistic** automaton: the next value of a cell
-depends only on how many of its eight neighbours are colour 1, and on the
-cell's own colour. Eighteen bits of rule number cover all eighteen cases. He
-generated random rules and kept thirteen. Those are in `ca/rules.js`.
+`ca-01.nb` **imports the JPEG folder** and feeds each image to
+`CellularAutomaton` as the initial condition. The chain runs
+*logograms → automaton*, not the other way round. His exported `.mov` files
+(`174688`, `174826`, both in the repository) are the automaton's output, and
+they are labyrinthine self-similar blobs with no ring, no taper and no
+filaments. Rendered next to the JPEGs they look like nothing on earth like each
+other.
 
-**The bit layout is not guessable, so it was pinned empirically.** The candidate
-is `bit = 9·colour + neighbourCount` (what `ca/rules.js` uses) against
-`bit = 9·neighbourCount + colour`. Under the layout actually used, Wolfram's
-rules grow, and they span a real range of behaviour from sparse and branchy to
-dense. Under the alternative, all thirteen collapse into the same
-undifferentiated blob, and 98–100% of random rules do nothing — which would
-mean his hand-picked list was arbitrary. The layout is load-bearing.
+So: `ScriptLogoJpegs` are the film's logograms, isolated, thresholded and
+captioned — one of them still has "Where is Abbott?" typeset into the bottom of
+the frame, and an automaton cannot typeset. They are the target. The automaton
+is an experiment performed *on* the target, and it is not a model of how the
+film's ink looks.
 
-**The rules are self-sustaining and will flood the frame.** Run unbounded, they
-reach 55–70% coverage within ten steps and keep going.
+#### What the automaton was doing, and why that was wrong twice
+
+It went through two wrong jobs before being removed, and both were plausible:
+
+1. **Tracing growth into geometry** — one hair per surviving cell. A CA is a
+   grid and ink is not, so this produced a radial isotropic spray: the grammar
+   of spatter, on a thin wire. It was recognisably wrong on sight.
+2. **Measuring growth into a width** — how deep does the ink reach at each
+   angle around a deposit, used as the stroke's half-width. This was better
+   because it is invisible, and that is exactly the problem: the mass became a
+   CA silhouette in disguise and read like one. A CA's perpendicular profile is
+   lumpy and scalloped where the reference masses are smooth tapered blades.
+
+The honest summary is that the automaton's output space and the logograms'
+appearance space do not overlap. What it was really providing was **variety**,
+and noise provides variety more cheaply, more controllably, and in units that
+can be measured against the target. So the mass is now modelled directly
+(`ink/mass.js`).
+
+The automaton remains in the repository, runnable, because it is the most
+interesting thing in Wolfram's notebooks and because deleting it would lose the
+finding below. It is not wired into `makeRingGlyph`.
 
 #### The good-rule list is weaker than it looks
 
-I first described those thirteen as Wolfram having curated them for ink-like
-growth. They are the survivors of a random search, and his filter is much
-weaker than it reads. Reproduced in `tools/probe-ca.mjs` (`npm run probe:ca`):
+He generated random rules and kept the ones passing a filter; the filter's
+literal form is
 
 ```wolfram
-frames[[-1]] != frames[[-2]]                    &  (* still evolving  *)
-Times @@ ImageDimensions[frames[[-1]]] < 80000  &  (* always true     *)
-EuclideanDistance @@ BorderDimensions[...] < ...     (* also always true*)
+frames[[-1]] =!= frames[[-2]] &&
+Times @@ ImageDimensions[frames[[-1]]] < 80000 &&
+EuclideanDistance @@ BorderDimensions[frames[[-1]]] <
+EuclideanDistance @@ BorderDimensions[frames[[1]]]
 ```
 
-- The area term is 14400 on every frame at his settings.
-- The bounding-box term *looks* like a containment test, but `@@` threads over
-  the 4-list into a **binary** function, so it evaluates as
-  `EuclideanDistance[{xmin,xmax},{ymin,ymax}]` — a symmetry test. It reads 3.16
-  on the seed ring and 0.00 on every grown frame.
+Read literally, the first term compares two **images**, so it is always true —
+there is no rule for which it is false. `npm run probe:ca` re-runs the whole
+analysis and prints both readings:
 
-So the filter is in practice just "still evolving at step 700", which accepts
-**10 of 13**. Read that third term as it was evidently meant — ink bounding box
-must not exceed the logogram's own — and **0 of 13** pass: every surviving rule
-fills the padded frame. The three that die early (`174688`, `47808`, `256576`)
-are excluded from the picker; `256576` is the identity on a ring and produces
-zero new cells, which cost a full automaton run to discover the hard way.
+```
+passing the filter as literally written: 10/13
+passing the intended bounding-box test: 0/13
+```
 
-#### Why the splatter here differs from his exports
+So what actually selected his list is the term as intended (a rule that is
+still growing) plus the size bound. Two of the thirteen are excluded as dead:
+`174688` stops at 126 cells and `256576` is the identity on a ring — it cost a
+full automaton run to discover that one the hard way.
 
-Wolfram seeds from the **entire binarised logogram** and runs **700 steps**.
-The result is self-similar, symmetric growth spreading from the whole circle —
-which is what the `.gif`/`.mov` exports in that repository actually show. It is
-not the film's irregular, localised growth, and no faithful port of his pipeline
-produces the film's growth.
+**The bit layout is likewise not guessable, so it was pinned empirically.** The
+candidate is `bit = 9·colour + neighbourCount` (what `ca/rules.js` uses) against
+`bit = 9·neighbourCount + colour`. Under the first, Wolfram's rules grow and
+span a real range of behaviour. Under the second, all thirteen collapse into one
+undifferentiated blob and 98–100% of random rules do nothing — which would mean
+his hand-picked list was arbitrary. The layout is load-bearing.
 
-So there are two targets, and they are not the same thing. Both are reachable
-on `G`:
+**The rules are self-sustaining and flood the frame.** Run unbounded they reach
+55–70% coverage within ten steps and keep going, which is why the notebook needs
+700 steps bounded by the image itself.
 
-| mode | seeds from | character |
-|---|---|---|
-| `deposit` | a disc of ink at each deposit | one rule per deposit, independent — closest to the film |
-| `whole` | the entire rasterised logogram, as `ca-01.nb` does | one rule for the whole glyph, so the deposits are correlated |
-| `procedural` | nothing — no automaton | — |
+### The reference figures, and what they actually show
 
-`deposit` is the default and needs a **reach budget** to stay local: cells
-outside a disc around the deposit are forced dry each step. That clipping
-substitutes for a property his filter appeared to select for and did not. The
-clip boundary is displaced by fbm, sampled into a 512-entry angular lookup — a
-clean circle reads instantly as artificial, and it is the one shape ink never
-has. `growth.js` asserts the patch is large enough for `reach` plus a margin,
-because a patch that is too small clips growth square and the clipping reads as
-a fault in the brush rather than as a misconfiguration.
+Since the target is external to the code, the measurements belong in the README
+rather than only in the code comments. Everything below is a fraction of the
+ring radius R, measured by `review/measure*.py` over ten of the 3300px frames —
+which found the ring by hill-climbing the centre to maximise *angular coverage*,
+after two earlier attempts produced numbers that looked plausible and were
+nonsense (a centroid is not the ring centre when there are masses, and
+maximising histogram sharpness is degenerate — it found R = 27821 on a 1200px
+image).
 
-`whole` needs no clipping, since the rules are bounded by the frame, but its
-step count is a compromise: 700 steps at this grid is ~40ms, a visible stall on
-click against a three-second draw. `CA.wholeSteps` is 150, which gives the same
-character because these rules reach their visual form early and then churn. Its
-seed is the *plain* glyph — a thin ring and a disc at each deposit — not the
-finished one, which would only redraw the ring in a different texture.
+| | min | median | max |
+|---|---|---|---|
+| hairline stroke, full width | 0.011 | 0.043 | 0.060 |
+| stroke p50 | 0.049 | 0.072 | 0.132 |
+| stroke p75 | 0.084 | 0.147 | 0.370 |
+| stroke p90 | 0.127 | 0.226 | 0.495 |
+| stroke p99 | 0.259 | 0.379 | 0.609 |
+| heaviest | 0.333 | 0.441 | 0.816 |
+| fraction of circle with no ink | 0% | 6% | 31% |
+| fraction heavier than 0.15 | 7% | 24% | 47% |
+| filaments past 1.2R | 9 | 16 | 43 |
+| filament reach p50 | 0.184 | 0.235 | 0.348 |
+| filament reach max | 0.314 | 0.478 | 0.699 |
+| spatter dots | 15 | 56 | 201 |
+| spatter dot diameter | 0.009 | 0.011 | 0.014 |
 
-`ca/rules.js` ranks the rules by how filamentary they grow — the fraction of
-cells with exactly one ink neighbour, i.e. how many free tips they have. Only
-the top of Wolfram's list reads as tendrils; `192184` grows into a near-solid
-mass and sits in the pool at a token weight.
+These are **ranges, and they are wide** — the heavy fraction alone runs 7% to
+47%. Comparing a generator to the median would be a mistake: a generator
+producing 36% is right, and one producing exactly the median 24% is only median
+correct. `tools/probe-ink.html` therefore flags a value as out of range rather
+than as a delta from a target.
 
-The rule weights are **square-rooted, not linear**. Weighting by rank directly
-put half of all glyphs on a single rule, which was defensible while the
-automaton supplied the logogram's geometry — its structure was the whole look.
-It is not defensible now that the automaton supplies a measurement and some
-bristles: the rule is one source of variety among several, and drawing half the
-seeds from one of eleven rules throws that away.
+Two findings from those measurements are worth calling out because both were
+got wrong by eye, repeatedly:
 
-### What the automaton is actually for
-
-Worth stating plainly, because it changed twice and the reason is not obvious.
-
-A cellular automaton is a grid. Ink is not. Tracing growth into geometry — one
-hair per surviving cell — produces a radial isotropic spray, which is the
-grammar of spatter, and none of the reference logograms look like that. It was
-tried, it read as spatter stuck to a thin wire, and it was wrong.
-
-So the automaton now does **two measurements, no geometry**:
-
-- **width** — how deep is the ink at each angle around a deposit? That becomes
-  the stroke's half-width. A grid is a poor way to draw ink and a perfectly good
-  way to measure it.
-- **texture** — the same run's fringe cells emit the fine bristles a loaded
-  brush leaves as it lifts off a wet mass.
-
-Both come from one run, so the rule influences shape and surface together. This
-is also what self-similar growth is *for*: a rough starburst of hairs leaving a
-mass is precisely what radial CA growth looks like when you use it as texture.
-
-The three quantities that control this are deliberately separate, and conflating
-them is what produced the earlier glumps:
-
-| | | |
-|---|---|---|
-| `CA.reach` | the growth *envelope* | 0.30 ring radii — has to reach well past the stroke, or the bristles have nowhere to go |
-| `BRUSH.bladeReach` | how much envelope counts as *weight* | 0.19 — below `reach` on purpose, so a growth that barely grew gets a thin blade |
-| `GLYPH.stroke` × `BRUSH.swellMax` | the stroke's own peak | the hairline, and a multiple of it |
+- **The offshoots are about hairline weight and surprisingly long** — root
+  cross-section 0.032 R, reach 0.235 R at the median rising to 0.699. The
+  tempting assumption is that they scale with the mass they leave. They do not.
+- **The tips taper; they do not club.** At low resolution the ends look
+  clubbed, and that reading survives looking at the images — it only dies under
+  measurement. A cross-section profile taken along each filament falls
+  monotonically (tip over mid = 0.52), and the largest club ratio in the whole
+  set is 0.109, i.e. no filament in any frame is wider at its tip than at its
+  middle. The "club" is an artefact of downscaling.
 
 ### The polar unwrap
 
@@ -220,11 +245,12 @@ src/
   ca/
     rules.js       Wolfram's rules, what survives his filter, and why
     automaton.js   the totalistic stepper
-    growth.js      growth -> two measurements: ink depth per angle, and bristles
-    whole.js       the whole-glyph run, seeded from the rasterised logogram
+                   (both retained as the experiment; not in the render path)
   ink/
     glyph.js       one logogram as a list of weighted draw ops
-    brush.js       the stroke: width profile, band, striation, bristles, spurs
+    mass.js        the ink mass: one blob's width profile
+    stroke.js      the stroke: width profile, band, striation, dry texture
+    offshoots.js   the filaments and spatter leaving a mass
     smoke.js       the interior ink haze
     writer.js      the ink buffer, and the life of each inscription
   unwrap/
@@ -264,7 +290,6 @@ a dev tool, served by `npm run dev`, not a build entry.
 | click / tap | ask for a glyph where you clicked |
 | `Space` | ask again, at the cursor |
 | `U` | unwrap into twelve sections |
-| `G` | cycle the growth mode: deposit → whole → procedural |
 | `C` | clear the pane |
 | `H` | hide the chrome |
 
@@ -278,10 +303,10 @@ For screenshots and tests. Glyphs are fully determined by their seed, so
 | `?warm=9` | fast-forward nine seconds at a fixed timestep, paint once |
 | `?at=x,y` | place the cursor |
 | `?click` | request a glyph at the cursor |
-| `?mode=deposit\|whole\|procedural` | how the ink deposits are grown |
 | `?unwrap` | start in the twelve-section view |
 | `?proof=18` | contact sheet of bare logograms, no scene, fog or grade |
-| `?debug` | frame timing, mark progress, ink coverage, the rule in use |
+| `?seed=N` | override the opening glyph's seed |
+| `?debug` | frame timing, mark progress, ink coverage, mass and filament counts |
 
 `?proof` shows the generator alone on flat ground. For judging likeness, use
 the comparison tool instead — see below.
@@ -304,9 +329,15 @@ npm run dev             # then open:
 ```
 
 A real logogram frame above, the generator's output for the seed below, paired
-in the same column at the same size. Query params for seeds, mode, cell size and
-which frames to use; the controls write themselves back to the URL, so a frame
-you are happy with can be reproduced exactly.
+in the same column at the same size. Query params for seeds, cell size and which
+frames to use; the controls write themselves back to the URL, so a frame you are
+happy with can be reproduced exactly.
+
+There is also **`tools/probe-ink.html`**, which is the other half of the loop:
+it generates sixty glyphs, measures them exactly the way the reference figures
+were measured, and flags any statistic that falls outside the reference range.
+Eyeballing gets the shape; the probe catches scale, and scale is where every
+wrong guess here has been made. It is linked from the comparison page.
 
 **Ink only** (`?bare=1`) drops the dry-pass ops — interior haze, ghost
 scratches, dry texture. The reference frames are cutouts of ink on white with
@@ -330,15 +361,19 @@ wrong conclusions, each of which cost a rewrite:
   band on top of it reads as a glump stuck to a wire; that was an architectural
   error, not a parametric one, and no amount of tuning the band fixed it.
 - **what grows off the fat regions** — not one thing but two, and they were
-  conflated. Short heavy wedges with width, tapering to sharp points. *And* a
-  starburst of fine bristles, which is what the automaton is actually good at.
-  An earlier version had only the first and called the second "spatter".
+  conflated. A fringe of filaments in clumps along the mass, fanning outward.
+  *And* separate spatter — round and teardrop dots, about 56 of them, about 1%
+  of the ink by area. An earlier version had only the first and called the
+  second "bristles".
+- **how heavy those filaments are** — about hairline weight, not a fraction of
+  the mass they leave. Assuming they scale with the mass makes them five times
+  too heavy, and it is a very natural assumption to make.
 - **surface** — real ink over its own footprint is striated, with thin gaps
   running along the stroke where bristles did not touch. A uniformly filled
-  band reads instantly as vector. This is `BRUSH.strips`, and the curve in
-  `striations()` matters more than the noise: remapped linearly, a mean-0.5
-  noise gives a mean alpha near 0.4 and the whole ring turns into a faded
-  photocopy.
+  band reads instantly as vector. The strip count follows the local width, and
+  that is not a detail: a fixed eight strips across a hairline makes each strip
+  sub-pixel, and sub-pixel quads antialias into a pale grey line — the entire
+  quiet half of the ring came out washed out for exactly this reason.
 
 ---
 
@@ -347,11 +382,12 @@ wrong conclusions, each of which cost a rewrite:
 Measured in the desktop browser at 1056×2236, one tab. Two things were slow,
 and neither was where it looked:
 
-**Glyph build: 33ms → 8.4ms.** The automaton was never the problem — it is
-about 5ms of that. The rest was the interior ink haze: a 224² tile evaluated
+**Glyph build: 33ms → 5.2ms.** The automaton was never the biggest cost — about
+5ms of it. Most of the rest was the interior ink haze: a 224² tile evaluated
 with thirteen octaves of noise per pixel, then drawn at roughly three times its
-own size and linearly filtered the whole way. There is nothing in a diffuse
-wash for detail to survive in, so the tile dropped to 96².
+own size and linearly filtered the whole way. There is nothing in a diffuse wash
+for detail to survive in, so the tile dropped to 96². Removing the automaton
+from the render path took the last of it.
 
 **Unwrap view: 31fps → 61fps.** Its own draw call cost 0ms. The cost was
 `mix-blend-mode: multiply` on a full-viewport overlay, which forces the
@@ -360,28 +396,17 @@ on every frame, whatever the overlay contains. Multiply looks marginally richer
 because it darkens in proportion to what is behind — but over black ink,
 ordinary alpha compositing darkens the same pixels by the same rule.
 
-Also worth knowing: the automaton's grid becomes visible in the ink above
-about 0.03 ring-radii per cell. `CA.cell` is 0.012, which puts ~80 cells per
-ring radius.
-
-Measured build cost per glyph, median of seven:
-
-| mode | build |
-|---|---|
-| `deposit` | ~8ms |
-| `procedural` | ~6ms |
-| `whole` | ~20ms |
-
-`whole` is the automaton running 150 steps over the whole rasterised glyph, and
-it is the reason that mode is not the default.
+Measured build cost per glyph, median of eleven: **5.2ms**, and a typical glyph
+is 70 ops — 54 stroke runs, 2-3 masses, around 20 filaments and 50-odd specks.
+Scene and unwrap both hold 60fps.
 
 ### Cost of the striation
 
-Drawing the band as eight longitudinal strips instead of one filled polygon
-multiplies the fill count by eight — 54 chunks × 8 = 432 fills per glyph, where
-there used to be 54. It measured as roughly 1ms of the 8ms, which is the right
-trade for the difference between ink and a vector shape. `BRUSH.strips` is the
-knob: eight reads as a brush, three as a comb, one as a solid polygon again.
+Drawing the band as longitudinal strips instead of one filled polygon multiplies
+the fill count by up to eight, and it is worth the cost: it is the difference
+between ink and a vector shape. It is not eight everywhere — the count follows
+the local width (see above), so a hairline is one fill and a mass is eight. The
+whole thing measures as under a millisecond of the 5ms.
 
 ---
 

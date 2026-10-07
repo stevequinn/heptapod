@@ -5,8 +5,11 @@
 
      config.js         every tunable
      lib/math.js       noise, easing, the event bus
-     ca/               Wolfram's cellular automaton, ported
+     ca/               Wolfram's cellular automaton — the experiment, not the
+                       render path; see ink/mass.js for why
      ink/glyph.js      one logogram, as a list of weighted draw ops
+     ink/mass.js       the ink blob the stroke swells into
+     ink/offshoots.js  the filaments and spatter leaving a mass
      ink/writer.js     the ink buffer and the life of each inscription
      unwrap/           the twelve-section analytic view
      scene/            WebGL: fog, glass, bloom, grade
@@ -36,10 +39,7 @@ const flags = queryFlags();
    generator actually produced. */
 if (flags.proof) {
   const { renderProofSheet } = await import('./unwrap/proof.js');
-  renderProofSheet(flags.proof, {
-    mode: flags.mode,
-    unwrap: flags.unwrap,
-  });
+  renderProofSheet(flags.proof, { unwrap: flags.unwrap });
 } else {
   boot();
 }
@@ -60,11 +60,10 @@ const pointer = createPointer(document.getElementById('scene-canvas'), chrome);
 const app = {
   clock: 0,
   heat: 0,
-  seed: 1337,
+  seed: flags.seed ?? 1337,
   /** cycles the visual composition; no translation is implied by this */
   response: 1,
   spawnTimer: 7,
-  mode: flags.mode,
   last: performance.now() / 1000,
   frame: 0,
 };
@@ -99,7 +98,7 @@ function requestGlyph(nx, ny) {
   app.seed = (app.seed * 1103515245 + 12345) >>> 0;
   chrome.twist((app.seed % 5) * 72);
 
-  const glyph = makeRingGlyph(app.seed, { mode: app.mode });
+  const glyph = makeRingGlyph(app.seed);
   ink.add(glyph, nx * ink.size.x, ny * ink.size.y, R, INK.drawSeconds);
   app.spawnTimer = SCENE.quiet;
 
@@ -142,32 +141,6 @@ keys.on('u', () => {
       : 'Heptapod&nbsp;B&nbsp;&nbsp;·&nbsp;&nbsp;Containment',
   );
 });
-/**
- * Cycle how the ink deposits are grown.
- *
- * These are genuinely different targets, not preferences, which is why all
- * three are reachable rather than one being "the" answer:
- *
- *   deposit    a disc of ink at each deposit grows outward. Localised and
- *              irregular — closest to the film.
- *   whole      the entire rasterised logogram seeds one automaton, as
- *              ca-01.nb does. Self-similar and symmetric, spreading from the
- *              whole circle. Faithful, and visibly not the film.
- *   procedural no automaton at all.
- */
-const MODES = ['deposit', 'whole', 'procedural'];
-const MODE_LABEL = {
-  deposit: 'Deposits&nbsp;·&nbsp;&nbsp;Automaton',
-  whole: 'Logogram&nbsp;·&nbsp;&nbsp;Whole&nbsp;Automaton',
-  procedural: 'Deposits&nbsp;·&nbsp;&nbsp;Procedural',
-};
-
-keys.on('g', () => {
-  app.mode = MODES[(MODES.indexOf(app.mode) + 1) % MODES.length];
-  unwrap.invalidate();
-  chrome.setMode(MODE_LABEL[app.mode]);
-});
-
 /* ── the frame ─────────────────────────────────────────────────────────── */
 
 function step(dt, draw = true) {
@@ -265,7 +238,9 @@ function report() {
     `  ${marks || '—'}\n` +
     `ink ${ink.canvas.width}x${ink.canvas.height}  css ${stage.width}x${stage.height}\n` +
     `ink coverage ${nz} sampled, peak alpha ${peak}, mean ${nz ? (sum / nz).toFixed(0) : 0}\n` +
-    `growth ${app.mode}  ·  rule ${ink.marks[0]?.glyph.rule ?? '—'}  ·  G to cycle`,
+    `masses ${ink.marks[0]?.glyph.masses.length ?? '—'}  ·  ` +
+    `filaments ${ink.marks[0]?.glyph.filaments.length ?? '—'}  ·  ` +
+    `specks ${ink.marks[0]?.glyph.specks.length ?? '—'}`,
   );
 }
 
@@ -273,7 +248,7 @@ function report() {
 
 /* Open with one inscription in a fixed composition: left of the near hand,
    nearly half the viewport tall. */
-const opening = makeRingGlyph(20240515, { mode: app.mode });
+const opening = makeRingGlyph(20240515);
 ink.add(opening,
   ink.size.x * 0.39, ink.size.y * 0.49,
   Math.min(ink.size.x * 0.31, ink.size.y * 0.255), 3.1);
@@ -282,7 +257,6 @@ if (flags.unwrap) {
   unwrap.set(true);
   chrome.setMode('Twelve&nbsp;sections&nbsp;&nbsp;·&nbsp;&nbsp;Unwrapped');
 }
-if (flags.noCA) chrome.setMode('Deposits&nbsp;&nbsp;·&nbsp;&nbsp;Procedural');
 
 if (flags.at) {
   const [ax, ay] = flags.at;

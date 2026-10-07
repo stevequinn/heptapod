@@ -13,45 +13,13 @@
    measured rather than guessed. Run:  node tools/probe-ca.mjs
 */
 
-const WOLFRAM_RULES = [
-  174826, 174688, 174794, 175164, 175950, 176510, 175780,
-  192184, 175622, 176632, 47808, 207594, 256576,
-];
-
-const IDX = (m, s) => 9 * s + m;
-
-function table(rule) {
-  const t = new Uint8Array(18);
-  for (let s = 0; s < 2; s++) for (let m = 0; m < 9; m++) t[9 * s + m] = (rule >> IDX(m, s)) & 1;
-  return t;
-}
-
-/** one generation, edges clamped (the notebook pads with empty) */
-function step(a, b, w, h, t) {
-  const at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? 0 : a[y * w + x]);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const n = at(x - 1, y - 1) + at(x, y - 1) + at(x + 1, y - 1)
-              + at(x - 1, y) + at(x + 1, y)
-              + at(x - 1, y + 1) + at(x, y + 1) + at(x + 1, y + 1);
-      b[y * w + x] = t[9 * a[y * w + x] + n];
-    }
-  }
-}
-
-function run(rule, seed, w, h, steps) {
-  const t = table(rule);
-  // copy the seed: writing into the caller's array is an easy slip here,
-  // because the swap below hands the original buffer back to be written on
-  // the second generation
-  let a = Uint8Array.from(seed);
-  let b = new Uint8Array(w * h);
-  for (let s = 0; s < steps; s++) {
-    step(a, b, w, h, t);
-    const tmp = a; a = b; b = tmp;
-  }
-  return a;
-}
+/* Both of these come from the app rather than being retyped here. An earlier
+   version of this file carried its own copy of the rule list and its own
+   stepper, and the two had already diverged: the local stepper clamped at the
+   grid edge while the app's wraps. Importing the real ones is the only way
+   this stays a measurement of the app rather than a measurement of itself. */
+import { WOLFRAM_RULES } from '../src/ca/rules.js';
+import { grow as run } from '../src/ca/automaton.js';
 
 /** {xmin,xmax,ymin,ymax} of the ink, or null if there is none */
 function border(a, w, h) {

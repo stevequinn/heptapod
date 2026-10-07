@@ -21,10 +21,9 @@ const INK_FG = '#12181b';
  * @param {number} count  how many glyphs
  * @param {object} opts
  * @param {number} [opts.seed]
- * @param {'deposit'|'whole'|'procedural'} [opts.mode]
  * @param {boolean} [opts.unwrap]  draw the twelve-section strip under each glyph
  */
-export function renderProofSheet(count, { seed = 1, mode = 'deposit', unwrap = false } = {}) {
+export function renderProofSheet(count, { seed = 1, unwrap = false } = {}) {
   document.body.innerHTML = '';
   document.body.style.cssText =
     'background:' + INK_BG + ';overflow:auto;margin:0;padding:28px;cursor:auto';
@@ -46,7 +45,7 @@ export function renderProofSheet(count, { seed = 1, mode = 'deposit', unwrap = f
 
   const rng = mulberry32(seed);
   for (let i = 0; i < count; i++) {
-    const glyph = makeRingGlyph(ri(rng, 1, 0x7fffffff), { mode });
+    const glyph = makeRingGlyph(ri(rng, 1, 0x7fffffff));
 
     const box = document.createElement('div');
     const cv = document.createElement('canvas');
@@ -76,7 +75,7 @@ export function renderProofSheet(count, { seed = 1, mode = 'deposit', unwrap = f
     }
 
     const cap = document.createElement('div');
-    cap.textContent = `${glyph.seed} · ${glyph.mode} · r${glyph.rule ?? '—'}`;
+    cap.textContent = `${glyph.seed}`;
     cap.style.cssText =
       `font:9px ui-monospace,monospace;letter-spacing:.08em;color:#7d8a8d;` +
       `text-align:center;padding-top:5px;text-transform:uppercase`;

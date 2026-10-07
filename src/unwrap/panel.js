@@ -21,13 +21,6 @@ import { UNWRAP } from '../config.js';
 import { TAU, clamp } from '../lib/math.js';
 import { warpContext } from './warp.js';
 
-/** how each growth mode is named in the caption */
-const GROWTH_LABEL = {
-  deposit: 'automaton deposits',
-  whole: 'whole-logogram automaton',
-  procedural: 'procedural deposits',
-};
-
 export class UnwrapView {
   constructor(inkCanvas, labelCanvas) {
     this.canvas = inkCanvas;
@@ -71,7 +64,7 @@ export class UnwrapView {
        nobody is watching change that fast. The key is quantised instead, so
        the strip re-renders on meaningful change and otherwise holds still. */
     const key = mark
-      ? `${mark.glyph.seed}|${mark.glyph.mode}|${mark.idx >> 2}|${Math.round(mark.alpha * 12)}`
+      ? `${mark.glyph.seed}|${mark.idx >> 2}|${Math.round(mark.alpha * 12)}`
       : 'none';
     if (key === this._key) return;
     this._key = key;
@@ -136,7 +129,7 @@ export class UnwrapView {
     // above the section numbers, not below them — the bottom of the viewport
     // belongs to the hint line
     lctx.fillText(
-      `${glyph.seed}  ·  ${GROWTH_LABEL[glyph.mode] ?? glyph.mode}  ·  twelve sections of ${Math.round(360 / SECTORS)}\u00b0`,
+      `${glyph.seed}  ·  twelve sections of ${Math.round(360 / SECTORS)}\u00b0`,
       padX, padY - H * 0.072,
     );
     lctx.restore();

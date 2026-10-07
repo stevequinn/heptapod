@@ -62,13 +62,6 @@
 
 <div class="controls">
   <label>seeds <input type="text" id="seeds" value="20240515,5874917,1346631033,1316061432,1547784110,914391992" size="34" /></label>
-  <label>mode
-    <select id="mode">
-      <option value="deposit">deposit</option>
-      <option value="whole">whole</option>
-      <option value="procedural">procedural</option>
-    </select>
-  </label>
   <label>cell <input type="range" id="cell" min="180" max="560" step="20" value="300" /></label>
   <label>pairing
     <select id="pairing">
@@ -78,6 +71,7 @@
   </label>
   <label>images <input type="text" id="only" placeholder="e.g. Costello1,Time1" size="22" /></label>
   <label><input type="checkbox" id="bare" /> ink only</label>
+  <a href="/tools/probe-ink.html" style="color:inherit">ink probe &rarr;</a>
   <span id="status"></span>
 </div>
 
@@ -100,7 +94,6 @@ const DEFAULT_IMAGES = [
 
 const IMAGES = (qs.get('only') || DEFAULT_IMAGES.join(',')).split(',').map((s) => s.trim()).filter(Boolean);
 const SEEDS = (qs.get('seeds') || $('seeds').value).split(',').map((s) => parseInt(s.trim(), 10)).filter(Number.isFinite);
-const MODE = qs.get('mode') || $('mode').value;
 const CELL = parseInt(qs.get('cell') || $('cell').value, 10);
 const PAIRING = qs.get('pairing') || $('pairing').value;
 const BARE = qs.get('bare') === '1';
@@ -132,7 +125,7 @@ function drawGlyph(seed, cell) {
   ctx.fillStyle = PAPER;
   ctx.fillRect(0, 0, cell, cell);
 
-  const g = makeRingGlyph(seed, { mode: MODE });
+  const g = makeRingGlyph(seed);
   /* glyph-local space has the ring radius at 1, so scale straight into the box */
   const R = cell * 0.40;
   ctx.save();
@@ -191,7 +184,7 @@ function render() {
 
     const name = document.createElement('div');
     name.className = 'name';
-    name.innerHTML = `<b>${seed}</b> · ${g.mode} · rule ${g.rule ?? '—'} · ${g.ops.length} ops`;
+    name.innerHTML = `<b>${seed}</b> · ${g.masses.length} masses · ${g.filaments.length} filaments · ${g.specks.length} specks`;
     pair.appendChild(name);
 
     pairs.appendChild(pair);
@@ -202,7 +195,7 @@ function render() {
     : 'no references fetched';
 }
 
-for (const id of ['seeds', 'mode', 'cell', 'pairing', 'only', 'bare']) {
+for (const id of ['seeds', 'cell', 'pairing', 'only', 'bare']) {
   $(id).addEventListener('change', render);
 }
 
@@ -215,7 +208,6 @@ render();
 
 /* keep the URL honest so a judged frame can be reproduced exactly */
 $('seeds').value = SEEDS.join(',');
-$('mode').value = MODE;
 $('cell').value = CELL;
 $('pairing').value = PAIRING;
 $('bare').checked = BARE;

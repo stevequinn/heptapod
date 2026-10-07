@@ -104,24 +104,3 @@ export function fbm2(rng, oct = 5) {
     return s / norm;
   };
 }
-
-/**
- * A tiny synchronous event bus. The app has almost no shared mutable state —
- * a clock, a pointer, a handful of toggles — so this is the whole of the
- * state management. Anything more would be ceremony.
- */
-export function emitter() {
-  const map = new Map();
-  return {
-    on(type, fn) {
-      if (!map.has(type)) map.set(type, new Set());
-      map.get(type).add(fn);
-      return () => map.get(type)?.delete(fn);
-    },
-    emit(type, payload) {
-      const set = map.get(type);
-      if (!set) return;
-      for (const fn of set) fn(payload);
-    },
-  };
-}

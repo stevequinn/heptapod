@@ -38,12 +38,12 @@ export const GLYPH = {
    * The hairline: the stroke's half-width where there is no ink, in
    * ring-radius units.
    *
-   * Measured on the 3300px originals rather than the translation sheet: on a
-   * 75px-radius ring the thin part of a real logogram is ~3.5px wide, i.e.
-   * ~0.023 of the radius. The blade peaks around 0.147 — a swell of roughly
-   * 6.4x, which is what BRUSH.swellMax expresses.
+   * Measured off the reference figures: the thinnest part of the stroke is
+   * 0.043 R across, so a half-width of 0.0215. That number has been stable
+   * across every way I have measured it and it is the one thing the first
+   * version of this file already had right.
    */
-  stroke: [0.021, 0.027],
+  stroke: [0.021, 0.026],
 
   /**
    * Ring radius wobble, as three amplitudes (low, mid, high frequency).
@@ -65,134 +65,193 @@ export const GLYPH = {
 };
 
 /**
- * Cellular-automaton ink growth.
+ * The ink mass.
  *
- * Wolfram's ca-01.nb grows structures with 2-colour totalistic rules from a
- * binarised logogram, then keeps the rules that grow interestingly:
- * 174826, 174688, 174794, 175164, 175950, 176510, 175780, 192184, 175622,
- * 176632, 47808, 207594, 256576. Those rules are self-sustaining, so they
- * are run inside a per-deposit patch with an explicit reach budget; without
- * it they flood the frame.
+ * A logogram is one stroke whose weight is the primary variable, and where it
+ * is heavy it is a *blob of ink* — not a thick line. Everything here describes
+ * that blob.
+ *
+ * Measured off the reference figures (3300px, isolated, thresholded; see
+ * tools/reference). All figures are fractions of the ring radius R, and the
+ * stroke's own width is quoted as a multiple of the hairline, because the ratio
+ * between the thin part and the heavy part is the single most legible thing
+ * about a logogram and is remarkably consistent from one frame to the next:
+ *
+ *   hairline          0.043 R full width  (half-width 0.022)
+ *   median stroke     0.072 R             (1.7x)
+ *   heavy region      0.226 R             (5.3x, and 24% of the circumference)
+ *   heaviest          0.441 R             (10x)
  */
-export const CA = {
-  /* The rule numbers live in ca/rules.js, not here. An earlier copy of the list
-     sat in this config and drifted: it went on naming 174688 and 256576 after
-     both had been proved dead, and nothing read it anyway. One list, in the
-     module that owns it. */
+export const MASS = {
+  /** peak half-width, as a multiple of the hairline. The top of the range is
+   *  the measured 10x; the bottom is what a lesser deposit gets, and the spread
+   *  between them is most of what makes one glyph differ from another. */
+  peak: [4.6, 8.4],
 
-  /** Size of one automaton cell, in ring radii. This is the resolution of the
-   *  growth: at 0.012 there are ~80 cells per ring radius, which is fine
-   *  enough for the filaments to read as hairs. Coarser than about 0.03 and
-   *  the grid itself becomes visible. */
-  cell: 0.012,
-  /** grid cells across one deposit patch; must be at least
-   *  2 * (reach / cell + margin) */
-  patch: 112,
-  /** dead margin around the growth, in cells. Not decorative: growth.js asserts
-   *  the patch is big enough for `reach` plus this, because a patch that is too
-   *  small clips the growth at a square boundary and the clipping reads as a bug
-   *  in the brush rather than as a misconfiguration. */
-  margin: 10,
-  /** steps to run */
-  steps: 34,
-  /**
-   * How far the automaton's growth reaches, as a fraction of the ring radius.
-   *
-   * This is the growth *envelope*, not the stroke's weight — the distinction
-   * matters, because the growth has to reach well past the blade for the
-   * bristles to have anywhere to go. Bounded at the same value as the blade
-   * (which is what it used to be) they were all emitted inside the mass and
-   * completely hidden by it.
-   *
-   * How much of that envelope counts as *weight* is BRUSH.bladeReach.
-   */
-  reach: 0.30,
-  /** how ragged the reach boundary is; 0 = a circle, which reads as artificial */
-  wobble: 0.5,
+  /** the shape of the swell across a deposit's arc, as an exponent on the
+   *  parabolic blade in mass.js. Below 1 broadens the shoulders; above 1
+   *  narrows them and sharpens the tips. */
+  shoulder: 0.82,
 
-  /** steps for the whole-glyph mode, which seeds from the entire rasterised
-   *  logogram as ca-01.nb does. Wolfram ran 700; at this grid that is ~40ms,
-   *  which is a visible stall on click against a three-second draw. These
-   *  rules reach their visual form well before 700 and then churn, so 150
-   *  gives the same character for a fifth of the cost. */
-  wholeSteps: 150,
+  /** irregularity of the blob's outline, and how much it varies across the
+   *  blob rather than uniformly. A smooth ellipse reads as a drawn shape. */
+  lumpiness: 0.18,
+  lumpFreq: 2.2,
+
+  /** angular half-span of a deposit's mass, radians. The references run from
+   *  about 40 to 65 degrees of arc at half-maximum, and they are big: between
+   *  a fifth and a third of the whole circle is "heavy" in every frame. */
+  span: [0.46, 0.86],
 };
 
 /**
- * The brush.
+ * The stroke — the band the mass swells out of.
  *
- * One continuous stroke whose weight is the primary variable. The distinction
- * from an emitter is the whole point: a radial isotropic spray is the grammar
- * of spatter, and none of the reference glyphs look like that. The offshoots
- * are wedges with width, tapering to points, fanning along the direction of
- * travel.
- *
- * Every number here was read off the originals — see tools/reference.
+ * Kept in the references' own terms rather than as a drawing convenience:
+ * real ink over its own path is striated lengthwise, with thin gaps where the
+ * bristles did not touch, and a uniformly filled band reads instantly as vector.
  */
-export const BRUSH = {
-  /** peak blade half-width, as a multiple of the hairline. The ratio between
-   *  the thin part of the stroke and its widest is the most legible thing about
-   *  a logogram, and it is strikingly consistent across the references: on a
-   *  75px-radius ring the hairline is ~3.5px and the blade ~22px, so ~6.4x. */
-  swellMax: 6.4,
-
-  /** the measured ink depth that maps to the peak blade half-width.
+export const STROKE = {
+  /** how far the bristles separate, at the hairline and at the mass. Note this
+   *  runs the *other* way to what intuition suggests: the mass is the most
+   *  solid part, because it is where the brush pressed hardest, and the tearing
+   *  in the references happens at its *edge* rather than through its middle.
+   *  Making the mass itself gappy is the obvious move and it produces grey
+   *  airbrushed blobs where the references have black ones.
    *
-   * Below CA.reach on purpose: a growth that fills the whole envelope is
-   * extreme, and treating it as merely "full" would put every glyph's blade at
-   * maximum and throw away the variation. A deposit whose automaton barely grew
-   * gets a thin blade, which is the variation worth having. */
-  bladeReach: 0.19,
-
-  /** how much of a deposit's arc is fat, as an exponent on the automaton's
-   *  measurement. Above 1 broadens the blade; a linear map leaves the swell
-   *  pinched around one measurement, and the references have fat *runs* —
-   * between 60 and 100 degrees of arc in every frame I measured. */
-  swellGamma: 2.6,
-
-  /** how far the bristles separate, at the hairline and at the blade. See
-   *  BRUSH.strips — this is the curve that decides whether the ring reads as
-   *  ink or as a faded photocopy of one. */
-  tear: [0.16, 0.42],
+   *  The values stay high overall for the same reason: remapped linearly, a
+   *  mean-0.5 noise gives a mean alpha near 0.4 and the ring turns into a faded
+   *  photocopy of a logogram. */
+  tear: [0.22, 0.10],
 
   /** below this noise value the tip skipped the glass and the streak is cut */
   skip: 0.30,
 
-  /** lengthwise streaks per band fill. This is the dry-brush striation: eight
-   *  reads as a brush, three as a comb, and one is a solid polygon again. */
-  strips: 8,
+  /** raggedness of the band's edge, on four scales — see ringBand() */
+  ragged: 0.42,
 
-  /** how ragged the band's edge is */
-  ragged: 0.34,
+  /** The quiet baseline: the hairline multiplied by [lo + hi * sectorProfile].
+   *  The lo/hi split matters. This used to be [0.62, 0.85], which put the
+   *  *median* stretch of stroke at the hairline — but the references' median is
+   *  1.6x the hairline, so half the circle came out too thin. The measurements
+   *  are a long tail from the hairline up to 10x, not a thin stroke with
+   *  occasional blobs on it. */
+  base: [0.66, 1.14],
 
-  /** Angular half-width of a deposit's arc, in radians. Wider than the ring's
-   *  thirty-degree sectors, because a blade in the references runs to well over
-   *  a quarter of the circle — the long axis being the tangent is what stops it
-   *  reading as a lump. */
-  arcSpan: 0.55,
+  /** below this lift value the stroke comes off the glass entirely. The
+   *  references have ~6% of the circle with no ink at all. */
+  lift: 0.16,
 
-  /** fine bristles leaving a wet mass, per deposit. The originals carry these —
-   * a rough starburst of hairs wherever the ink pooled — and they are the
-   * automaton's own growth used as texture rather than as the logogram itself,
-   *  which is what it is actually good at.
-   *
-   *  Counted in tens, not hundreds. Every exposed cell in the growth emits one,
-   *  and at 400 they piled into a solid fur pelt that read as a cloud stuck to
-   *  the ring rather than as separate hairs. The references show 30 to 60
-   *  distinct ones per mass, most of them short. */
-  bristles: [26, 74],
+  /** how much the band bulges outward under load, versus inward. Ink displaced
+   *  by a brush travelling round a circle piles up on the outside of its line,
+   *  and piles up more the harder it was pressed. */
+  poolOut: [0.62, 1.20],
+  poolIn: [0.44, 0.26],
+};
 
-  /** offshoots per deposit. The originals run from a single spur to a fan of
-   *  ten or so ("Ian Louise Must Go"), so this is deliberately wide. */
-  offshoots: [3, 10],
-  offshootLength: [0.09, 0.34],
-  /** how far off the tangent an offshoot may point, radians */
-  offshootCone: 0.85,
-  /** offshoot base half-width, as a fraction of the local stroke weight. The
-   *  top of this range used to be 0.60, which at a 0.15 blade is a 9px-wide
-   *  black wedge on a 75px ring — a fin, not a spur. Even 0.30 was too much:
-   *  an offshoot in the references is a thin sharp stroke, not a petal. */
-  offshootWidth: [0.06, 0.17],
+/**
+ * The offshoots.
+ *
+ * These are the thing most often got wrong. They are not bristles (too thin,
+ * too many, too short), and they are not wedges along the tangent (wrong
+ * direction, wrong scale). Measured, they are:
+ *
+ *   length            0.34 R at the median, 0.53 at p90, 0.80 at the maximum,
+ *                     measured from the ring outward
+ *   cross-section     0.032 R at the root — about *hairline* weight, not a
+ *                     fraction of the mass
+ *   direction         median 49 degrees off the tangent, p10 23, p90 70. That
+ *                     is close to isotropic with a slight outward lean, which is
+ *                     what a splash does. A tangential fan is a guess that the
+ *                     measurement does not support.
+ *   count             about 11 per logogram extend past 1.2 R, range 2 to 35
+ *   tip               tapers to a *rounded* point. At low resolution the tips
+ *                     look clubbed, which is an artefact of downscaling; a
+ *                     cross-section profile measured along each filament falls
+ *                     monotonically (tip/mid = 0.52).
+ */
+export const OFFSHOOT = {
+  /** filaments per logogram. Scaled per deposit by how heavy it is, then this
+   *  bounds the total. */
+  count: [12, 30],
+
+  /** length, in ring radii, from the root to the tip */
+  length: [0.04, 0.48],
+
+  /** root half-width, as a multiple of the hairline. Around 1 means a filament
+   *  is about as heavy as the thinnest part of the stroke, which is what the
+   *  measurements say and what the eye confirms. */
+  width: [0.45, 1.15],
+
+  /** exponent of the taper. The references fall *slowly* along most of the
+   *  length and then round off, so this is well below 1 — a linear cone or a
+   *  Gaussian both thin too fast and read as a spike of grass. See `tipCap`. */
+  taper: 0.42,
+
+  /** the cross-section the taper settles at before the end cap. Fitting the
+   *  measured profiles gives w(u) = w0 * (0.18 + 0.82 (1-u)^0.42), and the
+   *  round cap on the final segment turns this floor into the rounded end the
+   *  references have. Setting it to 0 gives a mathematically sharp needle,
+   *  which is the one thing they are not. */
+  tipCap: 0.18,
+
+  /** irregularity along the length — the visible nodes and swells. Straight
+   *  conical filaments read as grass. */
+  undulate: 0.38,
+  undPeriods: 2.6,
+
+  /** hard cap on a filament's reach. The outliers below would otherwise push
+   *  past the longest filament in any reference frame, and a single absurd
+   *  filament is more conspicuous than any number of dull ones. */
+  maxLength: 0.60,
+
+  /** the length distribution is skewed hard toward short: the references have
+   *  a dense fringe of short filaments along the mass and only a handful of
+   *  long ones. A uniform distribution over the same range puts too many long
+   *  ones on and the fringe stops reading as a fringe. */
+  lengthSkew: 1.9,
+
+  /** how much the filament bows sideways over its length, radians */
+  bow: [0.02, 0.13],
+
+  /** angular spread of the emission direction about the outward radial, in
+   *  radians. The measurement's p10-p90 is roughly +-40 degrees of the median,
+   *  which a sum-of-three-uniforms scaled by this reproduces. */
+  spread: 1.0,
+
+  /** where along the mass a filament is emitted from, as a fraction of the
+   *  mass's own half-span, and how deep inside the blob the root sits so the
+   *  blob covers it */
+  outlet: [0.15, 0.95],
+
+  /** Filaments arrive in clumps, not a comb. The references' fringes are
+   *  bunches of filaments from near the same point on the mass, fanning out,
+   *  with bare stretches between the bunches. Spacing them evenly along the
+   *  arc is the single clearest sign that a fringe is generated. */
+  clumps: [2, 4],
+  /** half-width of a clump along the mass, as a fraction of the mass's span */
+  clumpSpread: 0.14,
+  /** how tightly the directions within a clump agree. 0 is one shared
+   *  direction for the whole clump, larger fans it out. */
+  clumpFan: 0.55,
+};
+
+/**
+ * Spatter.
+ *
+ * The references carry real speckle: around 56 detached dots per logogram,
+ * each about 0.011 R across, together about 1% of the ink area, clustered
+ * within about 1.5 R of the centre — thrown where the ink flicked, not sprayed
+ * evenly over the frame.
+ */
+export const SPATTER = {
+  perMass: [12, 34],
+  /** dot radius, in ring radii */
+  size: [0.0014, 0.0075],
+  /** distance from the ring, in ring radii */
+  reach: [0.02, 0.55],
+  /** fraction of dots that are teardrops rather than round */
+  stretched: 0.35,
 };
 
 export const UNWRAP = {

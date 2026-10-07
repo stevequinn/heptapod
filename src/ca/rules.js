@@ -69,7 +69,7 @@ export const DEAD_RULES = new Set([174688, 47808, 256576]);
 /**
  * How filamentary each rule grows, measured from this repo rather than
  * asserted: grow a small disc from each rule under the bounded-reach variant
- * in `growth.js`, then score the fraction of cells with exactly one ink
+ * here, then score the fraction of cells with exactly one ink
  * neighbour. A high fraction means lots of free tips, i.e. branches that end
  * in points rather than a solid mass.
  *

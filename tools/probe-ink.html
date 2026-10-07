@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Ink probe — generated against measured</title>
+<style>
+  :root { --paper:#e8ebec; --ink:#12181b; --dim:#7d8a8d; --rule:#c9d0d2; --bad:#b23a1a; --ok:#2f6b4f; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:var(--paper); color:var(--ink); padding:24px 28px 80px;
+    font:12px/1.6 ui-monospace, Menlo, monospace; letter-spacing:.06em;
+  }
+  h1 { font-size:12px; font-weight:400; letter-spacing:.26em; text-transform:uppercase; margin-bottom:4px; }
+  .sub { color:var(--dim); font-size:10px; letter-spacing:.14em; margin-bottom:18px; max-width:74ch; text-transform:none; letter-spacing:.06em; }
+  table { border-collapse:collapse; margin-bottom:22px; }
+  th, td { text-align:right; padding:3px 12px 3px 0; font-variant-numeric:tabular-nums; }
+  th { color:var(--dim); font-weight:400; text-align:right; border-bottom:1px solid var(--rule); }
+  td:first-child, th:first-child { text-align:left; padding-right:28px; }
+  tr.sep td { border-top:1px solid var(--rule); }
+  .note { color:var(--dim); }
+  .off { color:var(--bad); }
+  .ok { color:var(--ok); }
+  h2 { font-size:10px; font-weight:400; letter-spacing:.24em; color:var(--dim); text-transform:uppercase; margin:22px 0 8px; }
+  canvas { display:block; }
+  .row { display:flex; flex-wrap:wrap; gap:14px; margin-top:6px; }
+  .cell { border:1px solid var(--rule); }
+</style>
+</head>
+<body>
+
+<h1>Ink probe</h1>
+<p class="sub">
+  Generated glyphs, measured the same way the reference figures were, and put
+  beside the reference values. Everything is a fraction of the ring radius.
+  &ldquo;ref&rdquo; is the median across ten reference logograms
+  (<code>review/measure4.py</code>, <code>measure6.py</code>).
+</p>
+
+<div id="out"></div>
+<h2>Samples</h2>
+<div class="row" id="row"></div>
+
+<script type="module">
+import { makeRingGlyph } from '/src/ink/glyph.js';
+
+const N = 60;
+const glyphs = [];
+for (let i = 0; i < N; i++) glyphs.push(makeRingGlyph((1013904223 + i * 2654435761) >>> 0));
+
+const pct = (a, p) => {
+  if (!a.length) return 0;
+  const s = [...a].sort((x, y) => x - y);
+  return s[Math.min(s.length - 1, Math.floor(p * s.length))];
+};
+const med = (a) => pct(a, 0.5);
+
+/* ---- stroke width, doubling the half-widths that the generator works in --- */
+const full = [];
+let gap = 0, tot = 0, heavy = 0;
+for (const g of glyphs) {
+  for (let i = 0; i < g.widths.length; i++) {
+    const w = g.widths[i] * 2;
+    tot++;
+    if (w < g.hairline * 0.55) { gap++; continue; }
+    full.push(w);
+    if (w > 0.15) heavy++;
+  }
+}
+
+/* ---- offshoots --------------------------------------------------------- */
+const filReach = [];
+const filAll = [];
+let filPer = [];
+for (const g of glyphs) {
+  filPer.push(g.filaments.filter((f) => f.reach > 0.2).length);
+  for (const f of g.filaments) {
+    filAll.push(f.reach);
+    /* the reference percentiles were measured over components that already
+       reached past 1.2R, so only filaments past 0.2 belong in the comparison —
+       otherwise adding short fringe filaments would appear to shorten the
+       long ones */
+    if (f.reach > 0.2) filReach.push(f.reach);
+  }
+}
+const specPer = glyphs.map((g) => g.specks.length);
+const specR = [];
+for (const g of glyphs) for (const s of g.specks) specR.push(s.r);
+
+/* [label, generated, refMin, refMedian, refMax, unit]
+   Compared against the RANGE, not the median. The reference set is ten very
+   different logograms and a single number would be misleading: heavy fraction
+   alone runs from 7% to 47% across them, so a generator producing 36% is
+   correct and a generator producing 24% is only median-correct. */
+const rows = [
+  ['stroke  thin (p10 of inked)', med(full.filter((w) => w < 0.08)), 0.011, 0.043, 0.060, ''],
+  ['stroke  p50', pct(full, 0.50), 0.049, 0.072, 0.132, ''],
+  ['stroke  p75', pct(full, 0.75), 0.084, 0.147, 0.370, ''],
+  ['stroke  p90', pct(full, 0.90), 0.127, 0.226, 0.495, ''],
+  ['stroke  p99', pct(full, 0.99), 0.259, 0.379, 0.609, ''],
+  ['stroke  max', pct(full, 1.0), 0.333, 0.441, 0.816, ''],
+  ['SEP'],
+  ['gap % of circle', gap / tot * 100, 0.0, 6.1, 31.4, '%'],
+  ['heavy % (>0.15, inked)', heavy / Math.max(1, full.length) * 100, 7.1, 24.1, 47.1, '%'],
+  ['SEP'],
+  ['filaments > 0.2R', filPer.reduce((a, b) => a + b, 0) / N, 9, 16, 43, ''],
+  ['filaments total', filAll.length / N, 0, 0, 999, ''],
+  ['filament reach p50', med(filReach), 0.184, 0.235, 0.348, ''],
+  ['filament reach p90', pct(filReach, 0.90), 0.258, 0.361, 0.615, ''],
+  ['filament reach max', pct(filReach, 1.0), 0.314, 0.478, 0.699, ''],
+  ['SEP'],
+  ['specks per glyph', specPer.reduce((a, b) => a + b, 0) / N, 15, 56, 201, ''],
+  ['speck diameter', med(specR) * 2, 0.009, 0.011, 0.014, ''],
+];
+
+let html = `<table><tr><th>quantity</th><th>reference min</th><th>med</th><th>max</th>`
+         + `<th>generated</th><th></th></tr>`;
+for (const r of rows) {
+  if (r[0] === 'SEP') { html += `<tr class="sep"><td colspan="6"></td></tr>`; continue; }
+  const [, gen, lo, mid, hi, unit = ''] = r;
+  const bad = gen < lo || gen > hi;
+  html += `<tr><td>${r[0]}</td>`
+        + `<td class="note">${lo.toFixed(3)}${unit}</td>`
+        + `<td class="note">${mid.toFixed(3)}${unit}</td>`
+        + `<td class="note">${hi.toFixed(3)}${unit}</td>`
+        + `<td class="${bad ? 'off' : 'ok'}">${gen.toFixed(3)}${unit}</td>`
+        + `<td class="${bad ? 'off' : 'ok'}">${bad ? 'out' : ''}</td></tr>`;
+}
+html += `</table>`;
+document.getElementById('out').innerHTML = html;
+
+/* ---- a few samples, the same scale and colour as compare.html ------------- */
+const row = document.getElementById('row');
+const CELL = 210;
+for (const g of glyphs.slice(0, 6)) {
+  const cv = document.createElement('canvas');
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  cv.width = CELL * dpr; cv.height = CELL * dpr;
+  cv.style.width = CELL + 'px'; cv.style.height = CELL + 'px';
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#e8ebec';
+  ctx.fillRect(0, 0, CELL, CELL);
+  const R = CELL * 0.40;
+  ctx.save();
+  ctx.translate(CELL / 2, CELL / 2);
+  ctx.scale(R, R);
+  for (const op of g.ops) if (!op.dryOnly) op.draw(ctx);
+  ctx.restore();
+  const box = document.createElement('div');
+  box.className = 'cell';
+  box.appendChild(cv);
+  row.appendChild(box);
+}
+</script>
+</body>
+</html>
