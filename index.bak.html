@@ -1,0 +1,1741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Heptapod — Ink on Glass</title>
+<style>
+  :root { color-scheme: dark; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#0b0f11; }
+  body {
+    font: 400 11px/1.5 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    letter-spacing:.18em; text-transform:uppercase;
+    -webkit-font-smoothing:antialiased;
+    cursor:none;
+  }
+  #scene-canvas { display:block; position:fixed; inset:0; width:100%; height:100%; touch-action:none; }
+  body { touch-action:none; }
+  ::selection { background:#8fa7a9; color:#101a1e; }
+  :focus-visible { outline:1px solid #c2d5d6; outline-offset:5px; }
+  @media (pointer:coarse) { body { cursor:auto; } #reticle { display:none; } }
+  @media (prefers-reduced-motion:reduce) { #reticle i { transition:none; } #ui, #title { animation:none; opacity:1; } }
+  @media (max-width:620px) {
+    #title { padding:18px 20px 0; font-size:9px; }
+    #title span:last-child { display:none; }
+    #ui { padding:0 20px 20px; gap:8px; flex-direction:column; align-items:flex-start;
+      font-size:9px; letter-spacing:.09em; }
+    #ui span:last-child { text-align:left; }
+  }
+
+  #reticle {
+    position:fixed; left:0; top:0; width:0; height:0; pointer-events:none; z-index:20;
+    will-change:transform; opacity:0; transition:opacity .25s ease;
+  }
+  #reticle i {
+    position:absolute; display:block; border-radius:50%;
+    left:50%; top:50%; transform:translate(-50%,-50%);
+  }
+  #reticle .ring {
+    width:34px; height:34px; border:1px solid rgba(206,224,230,.42);
+    mix-blend-mode:screen;
+    transform:translate(-50%,-50%) scale(var(--pulse,1));
+    transition:transform .35s cubic-bezier(.2,.8,.2,1), opacity .3s;
+  }
+  #reticle .arc {
+    width:34px; height:34px; border:1px solid transparent;
+    border-top-color:rgba(226,240,244,.85); border-right-color:rgba(226,240,244,.30);
+    mix-blend-mode:screen;
+    transform:translate(-50%,-50%) rotate(var(--twist,0deg)) scale(var(--pulse,1));
+    transition:transform .5s cubic-bezier(.2,.8,.2,1);
+  }
+  #reticle .dot {
+    width:3px; height:3px; background:rgba(226,240,244,.9); mix-blend-mode:screen;
+  }
+
+  #ui {
+    position:fixed; z-index:30; pointer-events:none;
+    left:0; right:0; bottom:0; padding:0 0 26px;
+    display:flex; justify-content:space-between; align-items:flex-end;
+    padding-left:30px; padding-right:30px;
+    color:rgba(196,214,222,.5);
+    opacity:0; animation:fadeIn 2.4s 1.6s forwards cubic-bezier(.2,.8,.2,1);
+  }
+  #ui.hide { opacity:0 !important; transition:opacity .6s; }
+  @keyframes fadeIn { to { opacity:1; } }
+  #ui b { font-weight:400; color:rgba(226,240,244,.82); }
+  #ui .k {
+    display:inline-block; padding:1px 5px; margin-right:6px;
+    border:1px solid rgba(196,214,222,.28); border-radius:2px;
+    font-size:9.5px; letter-spacing:.1em;
+  }
+
+  #title {
+    position:fixed; z-index:30; pointer-events:none;
+    top:0; left:0; right:0; padding:24px 30px 0;
+    display:flex; justify-content:space-between;
+    color:rgba(196,214,222,.34); font-size:10px; letter-spacing:.3em;
+    opacity:0; animation:fadeIn 3s 2.6s forwards cubic-bezier(.2,.8,.2,1);
+  }
+  #title.hide { opacity:0 !important; transition:opacity .6s; }
+
+  #boot {
+    position:fixed; inset:0; z-index:50; display:grid; place-items:center;
+    background:#0b0f11; color:rgba(196,214,222,.55);
+    transition:opacity 1.1s ease; letter-spacing:.32em; font-size:10px;
+  }
+  #boot.gone { opacity:0; pointer-events:none; }
+</style>
+</head>
+<body>
+
+<div id="reticle"><i class="arc"></i><i class="ring"></i><i class="dot"></i></div>
+
+<div id="title"><span>Heptapod&nbsp;&nbsp;/&nbsp;&nbsp;Observation&nbsp;Window</span><span>Heptapod&nbsp;B&nbsp;&nbsp;·&nbsp;&nbsp;Containment</span></div>
+
+<div id="ui">
+  <span><span class="k">Move</span><b>They follow</b> &nbsp;·&nbsp; <span class="k">Click / tap</span><b>Draw a glyph here</b></span>
+  <span><span class="k">Space</span>Draw again &nbsp;·&nbsp; <span class="k">C</span>Clear &nbsp;·&nbsp; <span class="k">H</span>Hide</span>
+</div>
+
+<div id="boot">Listening&hellip;</div>
+<pre id="fatal" style="position:fixed;inset:0;z-index:99;margin:0;padding:26px;display:none;
+  background:#0b0f11;color:#d98b7a;font:11px/1.7 ui-monospace,monospace;white-space:pre-wrap;overflow:auto"></pre>
+<pre id="dbgTxt" style="position:fixed;right:0;top:0;z-index:41;display:none;margin:0;padding:8px;
+  background:#000;color:#4f4;max-width:420px;font:10.5px/1.45 ui-monospace,monospace"></pre>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ══════════════════════════════════════════════════════════════════════
+   0.  Math / noise utilities
+   ══════════════════════════════════════════════════════════════════════ */
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp  = (a, b, t) => a + (b - a) * t;
+const smoothstep = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
+const easeInOutSine = t => -(Math.cos(Math.PI * t) - 1) / 2;
+
+/** deterministic PRNG so a glyph is reproducible from its seed */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const rr = (rng, a, b) => a + rng() * (b - a);
+const ri = (rng, a, b) => Math.floor(a + rng() * (b - a + 1));
+
+/** 1-D fractal noise on a wrapped value-noise lattice */
+function fbm1(rng, oct = 4) {
+  const tabs = [];
+  for (let o = 0; o < oct; o++) {
+    const n = 64, t = new Float32Array(n);
+    for (let i = 0; i < n; i++) t[i] = rng();
+    tabs.push({ n, t });
+  }
+  return (x) => {
+    let s = 0, amp = 1, f = 1, norm = 0;
+    for (let o = 0; o < oct; o++) {
+      const { n, t } = tabs[o];
+      const xi = x * f, i = Math.floor(xi), fr = xi - i;
+      const s0 = fr * fr * (3 - 2 * fr);
+      const a = t[((i % n) + n) % n], b = t[(((i + 1) % n) + n) % n];
+      s += amp * (a + (b - a) * s0);
+      norm += amp; amp *= 0.5; f *= 2.07;
+    }
+    return s / norm;
+  };
+}
+
+/** 2-D fractal value noise */
+function fbm2(rng, oct = 5) {
+  const G = 16, tabs = [];
+  for (let o = 0; o < oct; o++) {
+    const n = G * G, t = new Float32Array(n);
+    for (let i = 0; i < n; i++) t[i] = rng();
+    tabs.push({ n, t });
+  }
+  const val = (tab, n, x, y) => {
+    const fx = ((x % 1) + 1) % 1, fy = ((y % 1) + 1) % 1;
+    const gx = fx * n, gy = fy * n;
+    const ix = Math.floor(gx), iy = Math.floor(gy);
+    const sx = gx - ix, sy = gy - iy;
+    const u = sx * sx * (3 - 2 * sx), v = sy * sy * (3 - 2 * sy);
+    const at = (a, b) => tab[(((b % n) + n) % n) * n + (((a % n) + n) % n)];
+    return lerp(lerp(at(ix, iy), at(ix + 1, iy), u), lerp(at(ix, iy + 1), at(ix + 1, iy + 1), u), v);
+  };
+  return (x, y) => {
+    let s = 0, amp = 1, f = 1, norm = 0;
+    for (let o = 0; o < oct; o++) {
+      s += amp * val(tabs[o].t, G, x * f, y * f);
+      norm += amp; amp *= 0.5; f *= 2.11;
+    }
+    return s / norm;
+  };
+}
+
+/** shortest signed angular difference */
+const angDiff = (a, b) => { let d = (a - b) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
+
+/* ══════════════════════════════════════════════════════════════════════
+   1.  Ink — the heart of this thing.
+       A glyph is a list of weighted "ops" in a LOCAL unit space where the
+       ring radius = 1 and the centre = origin. Ops are painted
+       progressively so the ink appears to be laid down by a limb.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Each glyph wants its own plume, so these are generated on demand and
+   cached by seed. A tiny pool keeps memory flat across a long session. */
+const SMOKE_CACHE = new Map();
+const SMOKE_MAX = 12;
+function smokeCanvas(seed) {
+  if (SMOKE_CACHE.has(seed)) return SMOKE_CACHE.get(seed);
+  if (SMOKE_CACHE.size >= SMOKE_MAX) {
+    SMOKE_CACHE.delete(SMOKE_CACHE.keys().next().value);
+  }
+  const rng = mulberry32(0x51ed + seed * 7919);
+  const S = 224;
+  const cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const g = cv.getContext('2d');
+  const img = g.createImageData(S, S);
+  const wx = fbm2(rng, 4), wy = fbm2(rng, 4), n2 = fbm2(rng, 5);
+  const hot = [{ x: rr(rng, -.5, .5), y: rr(rng, -.5, .5), s: rr(rng, .22, .46) },
+               { x: rr(rng, -.6, .6), y: rr(rng, -.6, .6), s: rr(rng, .16, .34) }];
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const nx = (x / S) * 2 - 1, ny = (y / S) * 2 - 1;
+      const rr0 = Math.hypot(nx, ny);
+      if (rr0 > 1.02) continue;
+      // envelope: densest near the blot, thinning outward past the stroke
+      // Very light overall: the reference haze is a whisper, not a cloud.
+      let env = smoothstep(0.96, 0.10, rr0) * 0.30;
+      for (const h of hot) {
+        const d = (nx - h.x) ** 2 + (ny - h.y) ** 2;
+        env = Math.max(env, Math.exp(-d / h.s) * 0.80);
+      }
+      // Domain-warped noise, thresholded hard. The high exponent is the point:
+      // it keeps only the noise ridges, so the result is filaments and
+      // tendrils rather than an evenly-tinted disc.
+      // Low frequency on purpose: at high frequency this turns into per-pixel
+      // speckle (TV static) instead of a soft ink smear.
+      const a1 = wx(nx * 0.85, ny * 0.85), a2 = wy(nx * 0.85 + 5.1, ny * 0.85 - 2.3);
+      const n2b = n2(nx * 1.5 + a1 * 1.15, ny * 1.5 + a2 * 1.15);
+      let n = Math.pow(clamp(n2b * 1.5 - 0.42, 0, 1), 1.7);
+      const a = clamp(env * n * 1.5, 0, 1);
+      const i = (y * S + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 6;
+      img.data[i + 3] = (a * 214) | 0;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  SMOKE_CACHE.set(seed, cv);
+  return cv;
+}
+
+/**
+ * Build one ring glyph. Local space: ring radius ≈ 1.
+ * Returns { ops:[{w,head?,draw(ctx)}], total, radius }
+ */
+function makeRingGlyph(seed, variant) {
+  const rng = mulberry32(seed >>> 0);
+  const nWob = [fbm1(rng, 4), fbm1(rng, 3), fbm1(rng, 3)];
+  const nW   = fbm1(rng, 4);
+  const p0 = rr(rng, 0, 90), p1 = rr(rng, 0, 90), p2 = rr(rng, 0, 90), p3 = rr(rng, 0, 90);
+
+  /* Eight compositions inspired by the reference sheet's variety — different
+     pool placements, weights, wobble, gaps, and tentacle character. These are
+     *compositions*, not claimed translations. Angles are canvas angles:
+     -PI/2 is the upper rim, +PI/2 the lower rim. */
+  const styles = [
+    { pools:[[-2.15,1.00,.48],[1.48,.28,.22]], gaps:[], tent:{n:[7,11],len:[.10,.26]}, wBase:1.00, wob:1.00 },
+    { pools:[[-2.10,.95,.36],[.38,.75,.25]], gaps:[[1.62,.37]], tent:{n:[5,8],len:[.08,.20]}, wBase:.95, wob:1.10 },
+    { pools:[[-1.75,1.05,.57],[2.35,.72,.31]], gaps:[[.75,.23]], tent:{n:[8,12],len:[.10,.30]}, wBase:1.05, wob:1.00 },
+    { pools:[[-2.56,.82,.26],[-.43,.80,.31],[1.42,.65,.27]], gaps:[], tent:{n:[4,7],len:[.06,.16]}, wBase:1.00, wob:.90 },
+    { pools:[[-1.35,1.05,.48],[.22,.52,.23]], gaps:[[2.05,.32]], tent:{n:[6,10],len:[.09,.24]}, wBase:.90, wob:1.15 },
+    { pools:[[-2.05,.80,.34],[2.23,.90,.39]], gaps:[[-.10,.27]], tent:{n:[5,9],len:[.08,.22]}, wBase:1.00, wob:1.00 },
+    { pools:[[-2.30,.90,.40],[-.90,.60,.30],[.90,.55,.28]], gaps:[[1.90,.30]], tent:{n:[7,11],len:[.09,.26]}, wBase:1.10, wob:1.05 },
+    { pools:[[-1.60,.85,.40],[1.90,.80,.36]], gaps:[[.20,.22]], tent:{n:[4,6],len:[.07,.18]}, wBase:.85, wob:1.20 },
+  ];
+  const style = styles[(variant ?? 0) % styles.length];
+  const wobbleAmp = style.wob;
+  const blots = style.pools.map(([a,strength,spread]) =>
+    ({ a:a+rr(rng,-.13,.13), strength, spread }));
+  const gaps = style.gaps.map(([a,width]) => ({a:a+rr(rng,-.08,.08),width}));
+  const gapAt = a => {
+    let opacity = 1;
+    for (const gap of gaps) {
+      const d = Math.abs(angDiff(a,gap.a));
+      opacity *= smoothstep(gap.width*.7,gap.width*1.3,d);
+    }
+    return opacity;
+  };
+  const startA = blots[0].a;
+
+  /* ---- the wobbly ring path ------------------------------------------ */
+  const N = 216;
+  const ecc = rr(rng, -.055, .055);
+  const path = [];
+  for (let i = 0; i <= N; i++) {
+    const u = i / N;
+    const a = startA + u * TAU;
+    let r = 1;
+    r += 0.19 * wobbleAmp * (nWob[0]((a / TAU) * 3 + p0) - .5);
+    r += 0.075 * wobbleAmp * (nWob[1]((a / TAU) * 7 + p1) - .5);
+    r += 0.026 * wobbleAmp * (nWob[2]((a / TAU) * 17 + p2) - .5);
+    const cx = Math.cos(a) * r, cy = Math.sin(a) * r;
+    path.push({
+      x: cx * (1 + ecc), y: cy * (1 - ecc), a, r, u: clamp(u, 0, 1)
+    });
+  }
+
+  /** Stroke half-width along the path. Kept thin: the film's ring is a
+     scratchy pen line, and weight here is the main thing that made the
+     earlier version read as a bold graphic circle rather than ink. */
+  const base = rr(rng, 0.011, 0.016) * (style.wBase ?? 1);
+  const widthAt = (p) => {
+    const top = Math.max(0, -Math.sin(p.a));
+    let w = base * (0.47 + 0.44 * nW(p.u * 4.6 + p3) + 0.26 * Math.pow(top,3));
+    w *= 0.68 + 0.32 * smoothstep(0, 0.045, p.u) * (0.5 + 0.5 * smoothstep(1, 0.94, p.u));
+    for (const b of blots) {
+      const d = angDiff(p.a, b.a);
+      w += base * b.strength * 3.6 * Math.exp(-(d * d) / (b.spread * b.spread));
+    }
+    return w;
+  };
+
+  /* ---- ink passes ---------------------------------------------------
+     The film stroke is a thin scratchy line, not a bold outline: mostly
+     dry-brush with a dark intermittent core. So the passes run wide and
+     faint with only one narrow, broken core pass on top.            */
+  const PASSES = [
+    { m: 2.40, a: 0.012 },
+    { m: 1.90, a: 0.020 },
+    { m: 1.15, a: 0.038 },
+    { m: 0.62, a: 0.080 },
+    { m: 0.30, a: 0.230 },
+    { m: 0.15, a: 0.400 },
+  ];
+
+  const ops = [];
+  const ringOps = [];   // the ring is the glyph's silhouette, so it goes first
+
+  // ring, chunked so the stroke can grow segment by segment
+  const CHUNK = 5;
+  for (let s = 0; s < N; s += CHUNK) {
+    const e = Math.min(s + CHUNK, N);
+    const mid = path[Math.min(s + 1, N)];
+    const w = widthAt(mid);
+    const jitter = 0.92 + rng() * 0.16;
+    /* Per-segment pressure gate. Holding the tip down unevenly is what gives
+       the stroke its dry, intermittent quality — the line nearly vanishes in
+       places and thickens where the limb lingered. */
+    const press = [];
+    for (let i = s; i < e; i++) press.push(0.22 + 1.15 * nW(i * 0.85 + p0 * 3));
+    ringOps.push({
+      w: CHUNK * (0.6 + nW(s * 0.07 + p1) * 0.9),
+      head: path[e - 1],
+      draw(ctx) {
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        for (let pi = 0; pi < PASSES.length; pi++) {
+          const P = PASSES[pi];
+          const dark = pi >= 4;      // only the two narrowest passes obey pressure
+          for (let i = s; i < e; i++) {
+            const p0 = path[i], p1 = path[i + 1];
+            if (!p0 || !p1) continue;
+            const inkFlow = gapAt(p0.a);
+            if (inkFlow < .015) continue;
+            const j = 0.003;
+            const ax = p0.x + Math.sin(i * 17.1 + p0.a * 3.1) * j;
+            const ay = p0.y + Math.cos(i * 9.4 + p1.a * 1.7) * j;
+            const bx = p1.x + Math.sin((i+1) * 17.1 + p1.a * 3.1) * j;
+            const by = p1.y + Math.cos((i+1) * 9.4 + p0.a * 1.7) * j;
+            const pr = dark ? press[i - s] : 1;
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(bx, by);
+            ctx.lineWidth = w * P.m * jitter * pr * 2 * (0.25 + .75*inkFlow);
+            ctx.strokeStyle = `rgba(0,0,0,${(P.a * inkFlow * (dark ? Math.min(1.3, pr) : 1)).toFixed(4)})`;
+            ctx.stroke();
+          }
+        }
+      }
+    });
+  }
+
+  /* ---- the limb tip that lays the ink down -------------------------- */
+  // The tip only exists WHILE the stroke is being drawn, so it is marked
+  // `wetOnly`: painted to the evaporating wet buffer, never to the dried ink.
+  // Baking it into the ink would leave a fringe of spikes all around the ring.
+  for (const op of ringOps) {
+    const h = op.head;
+    const a = h.a + Math.PI / 2;
+    const L = base * 5.0, W = base * 2.3;
+    // `tip` is painted only into the wet buffer, which blurs and evaporates
+    // within a few hundred ms — so the tip travels with the stroke head
+    // instead of leaving permanent spikes around the finished ring.
+    op.tip = function (ctx) {
+      ctx.beginPath();
+      ctx.moveTo(h.x - Math.cos(a) * L, h.y - Math.sin(a) * L);
+      ctx.quadraticCurveTo(h.x - Math.cos(a) * L * .28, h.y - Math.sin(a) * L * .28, h.x, h.y);
+      ctx.quadraticCurveTo(h.x + Math.cos(a) * W * .9, h.y + Math.sin(a) * W * .9,
+        h.x - Math.cos(a) * L * .40, h.y - Math.sin(a) * L * 1.25);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(0,0,0,.85)';
+      ctx.fill();
+    };
+  }
+  ops.push(...ringOps);
+
+  // Streaks dragged *along* each ink deposit, not straight radial spikes.
+  // They give the pooled segments a torn brush edge while preserving the
+  // calm, nearly empty areas of the circle seen across the movie frames.
+  const drag = [];
+  for (const b of blots) for (let i=0; i<48*b.strength; i++) {
+    drag.push({
+      a:b.a+rr(rng,-b.spread,b.spread),
+      span:rr(rng,.04,.19) * (rng()<.5?-1:1),
+      offset:rr(rng,-.065,.065),
+      width:rr(rng,.002,.014)*b.strength,
+      alpha:rr(rng,.045,.26),
+    });
+  }
+  const pathAt = a => {
+    const u = ((a-startA)%TAU+TAU)%TAU/TAU;
+    return path[Math.min(N,Math.round(u*N))];
+  };
+  // Split across three ops so one frame never carries the whole deposit.
+  for (let part = 0; part < 3; part++) {
+    const slice = drag.filter((_, i) => i % 3 === part);
+    ops.push({ w:0.6, draw(ctx) {
+      ctx.lineCap='round';
+      for (const f of slice) {
+        for (let k=0; k<10; k++) {
+          const t=k/10, q=(k+1)/10;
+          const a=f.a+f.span*t, b=f.a+f.span*q;
+          const p=pathAt(a), next=pathAt(b);
+          const off=f.offset*(.6+.4*Math.sin(Math.PI*t));
+          ctx.beginPath();
+          ctx.moveTo(p.x+Math.cos(a)*off,p.y+Math.sin(a)*off);
+          ctx.lineTo(next.x+Math.cos(b)*off,next.y+Math.sin(b)*off);
+          ctx.lineWidth=f.width*(.18+.82*Math.sin(Math.PI*(t+.05)));
+          ctx.strokeStyle=`rgba(0,0,0,${(f.alpha*(.3+.7*Math.sin(Math.PI*(t+.05)))).toFixed(4)})`;
+          ctx.stroke();
+        }
+      }
+    }});
+  }
+
+  /* ---- blots --------------------------------------------------------
+     In the reference the blot is a *fibrous burst* — dozens of fine ink
+     filaments spraying from a small dense knot, like a struck match or a
+     sea urchin. It is not a solid splodge with a few thick spikes. So:
+     many hair-thin curved filaments over a tiny dense core.           */
+  blots.forEach((b, bi) => {
+    const bx = Math.cos(b.a), by = Math.sin(b.a);
+    const R = base * rr(rng, 1.9, 2.9);            // knot radius
+    const isMain = bi === 0;
+
+    /* Tentacles: tapered ribbons growing outward from the deposit, each with
+       its own lean, length, curl and width — the feature that makes one
+       logogram read differently from the next. Drawn as filled tapered
+       ribbons (not constant-width strokes) so they swell at the root and die
+       to a point like a real ink tendril. Only the principal pool grows full
+       tentacles; lesser pools get short tatter. */
+    const tentSpec = isMain ? style.tent : null;
+    const tents = [];
+    if (tentSpec) {
+      const nT = ri(rng, tentSpec.n[0], tentSpec.n[1]);
+      for (let i = 0; i < nT; i++) {
+        const dir = b.a + rr(rng, -0.62, 0.62);
+        const L = rr(rng, tentSpec.len[0], tentSpec.len[1]);
+        const baseA = b.a + rr(rng, -b.spread, b.spread) * 0.6;
+        const rp = pathAt(baseA);
+        tents.push({
+          x0: rp.x * 0.985, y0: rp.y * 0.985,
+          dir, L,
+          w0: rr(rng, 0.009, 0.024) * b.strength,
+          curl: rr(rng, -0.5, 0.5),
+          al: rr(rng, 0.24, 0.58),
+        });
+      }
+    }
+    // A tapered ribbon along a quadratic tendril, sampled as a filled polygon.
+    const ribbon = (ctx, t, widthMul, alphaMul) => {
+      const mx = t.x0 + Math.cos(t.dir) * t.L * 0.5 - Math.sin(t.dir) * t.curl * t.L * 0.5;
+      const my = t.y0 + Math.sin(t.dir) * t.L * 0.5 + Math.cos(t.dir) * t.curl * t.L * 0.5;
+      const ex = t.x0 + Math.cos(t.dir + t.curl * 0.45) * t.L;
+      const ey = t.y0 + Math.sin(t.dir + t.curl * 0.45) * t.L;
+      const SEG = 8, Lpts = [], Rpts = [];
+      for (let i = 0; i <= SEG; i++) {
+        const u = i / SEG, q = 1 - u;
+        const x = q*q*t.x0 + 2*q*u*mx + u*u*ex;
+        const y = q*q*t.y0 + 2*q*u*my + u*u*ey;
+        const dx = 2*q*(mx-t.x0) + 2*u*(ex-mx);
+        const dy = 2*q*(my-t.y0) + 2*u*(ey-my);
+        const dl = Math.hypot(dx, dy) || 1;
+        const w = (t.w0 * Math.pow(1 - u, 0.85) + 0.0007) * widthMul;
+        Lpts.push([x - dy/dl*w, y + dx/dl*w]);
+        Rpts.push([x + dy/dl*w, y - dx/dl*w]);
+      }
+      ctx.beginPath();
+      ctx.moveTo(Lpts[0][0], Lpts[0][1]);
+      for (const p of Lpts.slice(1)) ctx.lineTo(p[0], p[1]);
+      for (const p of Rpts.reverse()) ctx.lineTo(p[0], p[1]);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(0,0,0,${(t.al * alphaMul).toFixed(4)})`;
+      ctx.fill();
+    };
+    if (tents.length) {
+      // Underpass: faint and wide. Core: narrow and dark. Separate ops so the
+      // deposit builds over two frames instead of one heavy spike.
+      ops.push({ w: 0.9, draw(ctx) { for (const t of tents) ribbon(ctx, t, 2.3, 0.30); } });
+      ops.push({ w: 0.9, draw(ctx) { for (const t of tents) ribbon(ctx, t, 1.0, 1.0); } });
+    }
+
+    /* Short tatter hugging the ring at every pool — the torn brush edge along
+       the stroke itself. Tangential bias: uniform radial angles produced the
+       "spikes" look, so these cluster around the local tangent. */
+    const tangent = b.a + Math.PI / 2;
+    const nFil = isMain ? ri(rng, 12, 22) : ri(rng, 16, 30);
+    const fils = [];
+    for (let i = 0; i < nFil; i++) {
+      const side = rng() < 0.5 ? -1 : 1;
+      const a = tangent * side + rr(rng, -0.85, 0.85) + (rng() < 0.15 ? rr(rng, -1.4, 1.4) : 0);
+      const len = R * rr(rng, 0.5, 1.6);
+      fils.push({
+        a, len,
+        w: R * rr(rng, 0.035, 0.105),
+        curve: rr(rng, -0.5, 0.5),
+        al: rr(rng, 0.30, 1.0),
+      });
+    }
+
+    // One op per pass so the deposit builds over several frames instead of
+    // landing ~150 strokes in a single frame (a visible hitch on slow machines).
+    const FIL_PASSES = [{ m: 1.35, a: 0.026 }, { m: 1.0, a: 0.11 }, { m: 0.55, a: 0.27 }];
+    FIL_PASSES.forEach((P, pi) => {
+      ops.push({
+        w: 0.75,
+        draw(ctx) {
+          ctx.lineCap = 'round';
+          for (const f of fils) {
+            const len = f.len * P.m;
+            const tipA = f.a + f.curve * 0.42;
+            ctx.beginPath();
+            ctx.moveTo(bx + Math.cos(f.a) * R * 0.10, by + Math.sin(f.a) * R * 0.10);
+            ctx.quadraticCurveTo(
+              bx + Math.cos(f.a + f.curve * 0.55) * len * 0.52,
+              by + Math.sin(f.a + f.curve * 0.55) * len * 0.52,
+              bx + Math.cos(tipA) * len,
+              by + Math.sin(tipA) * len);
+            ctx.lineWidth = f.w * P.m;
+            ctx.strokeStyle = `rgba(0,0,0,${(P.a * f.al).toFixed(4)})`;
+            ctx.stroke();
+          }
+          // small dense knot at the origin of the burst, darkest on the last pass
+          if (pi === FIL_PASSES.length - 1) {
+            ctx.beginPath();
+            for (let i = 0; i <= 22; i++) {
+              const a = (i / 22) * TAU;
+              const rad = R * (0.42 + 0.30 * nW(a * 2.1 + bi * 5 + p0));
+              const x = bx + Math.cos(a) * rad, y = by + Math.sin(a) * rad;
+              if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            ctx.fillStyle = `rgba(0,0,0,${(P.a + 0.10).toFixed(4)})`;
+            ctx.fill();
+          }
+        }
+      });
+    });
+
+    /* fine spatter, kept close to the deposit — the reference has almost no
+       far-flung detached dots, just tatter at the edge of the ink */
+    const drops = ri(rng, 18, 38);
+    const dropDefs = [];
+    for (let i = 0; i < drops; i++) {
+      const a = rr(rng, 0, TAU);
+      const t = Math.pow(rng(), 1.7);
+      dropDefs.push({
+        a, d: R * (1.1 + t * 3.2),
+        r: R * (0.012 + 0.06 * Math.pow(rng(), 2.4)) * (1 - t * 0.75),
+        al: rr(rng, 0.12, 0.45) * (1 - t * 0.65),
+        sq: rr(rng, 0.7, 1.3),
+      });
+    }
+    ops.push({
+      w: 1.8,
+      dryOnly: true,   // faint dust needs no gloss layer
+      draw(ctx) {
+        for (const d of dropDefs) {
+          if (d.r < 0.0018 || d.al < 0.02) continue;
+          ctx.beginPath();
+          ctx.ellipse(bx + Math.cos(d.a) * d.d, by + Math.sin(d.a) * d.d,
+            d.r, d.r * d.sq, d.a, 0, TAU);
+          ctx.fillStyle = `rgba(0,0,0,${d.al.toFixed(4)})`;
+          ctx.fill();
+        }
+      }
+    });
+  });
+
+  /* ---- faint interior scratches --------------------------------------
+     Barely-there pen marks inside the ring, as in the reference where a few
+     dry strokes linger within the circle. Very low alpha, broken.        */
+  const nGhost = ri(rng, 1, 3);
+  for (let i = 0; i < nGhost; i++) {
+    const ga = rr(rng, 0, TAU), gr = rr(rng, .26, .60), gs = rr(rng, .5, 1.7);
+    const gph = rr(rng, 0, 90);
+    const steps = [];
+    for (let k = 0; k <= 16; k++) {
+      const t = k / 16;
+      steps.push({ t, a: ga + t * gs, r: gr * (1 + 0.30 * (nWob[1](t * 3 + gph) - .5) * 2), on: rng() > 0.22 });
+    }
+    ops.push({
+      w: 1.0,
+      dryOnly: true,   // barely-there scratches need no gloss layer
+      draw(ctx) {
+        ctx.lineCap = 'round';
+        for (const P of [{ m: 3.0, a: .008 }, { m: 1.4, a: .014 }, { m: .6, a: .026 }]) {
+          let pen = false;
+          ctx.beginPath();
+          for (const s of steps) {
+            const x = Math.cos(s.a) * s.r, y = Math.sin(s.a) * s.r;
+            if (!s.on) { pen = false; continue; }
+            if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y);
+          }
+          ctx.lineWidth = base * P.m * 1.3;
+          ctx.strokeStyle = `rgba(0,0,0,${P.a})`;
+          ctx.stroke();
+        }
+      }
+    });
+  }
+
+  /* ---- interior tendrils, faded in over several ops ------------------- */
+  /* In the film the inside of a ring is mostly *empty* — just a faint,
+     off-centre wisp clinging to one side, not an evenly tinted disc.
+     So: one localised plume, biased toward a blot, and heavily clipped. */
+  const plumeAng = rr(rng, 0, TAU);
+  const plumeR = rr(rng, 0.10, 0.34);
+  const px0 = Math.cos(plumeAng) * plumeR, py0 = Math.sin(plumeAng) * plumeR;
+  const plumeR2 = rr(rng, 1.05, 1.35);
+  const plumeAlpha = rr(rng, 0.09, 0.15);
+  const smoke = smokeCanvas(ri(rng, 0, 63));
+  /* The ink haze is NOT clipped to the ring — in the reference it drifts
+     across the stroke and spills outside it, which is a big part of why the
+     glyph reads as ink on glass rather than a drawn circle. The interior
+     clip is deliberately omitted here. */
+  const SMOKE_STEPS = 5;
+  for (let s = 1; s <= SMOKE_STEPS; s++) {
+    const amt = s / SMOKE_STEPS;
+    ops.push({
+      w: 1.15,
+      dryOnly: true,   // soft haze needs no gloss layer
+      draw(ctx) {
+        ctx.save();
+        ctx.translate(px0, py0);
+        ctx.globalAlpha *= plumeAlpha * amt * amt;
+        ctx.drawImage(smoke, -plumeR2, -plumeR2, plumeR2 * 2, plumeR2 * 2);
+        ctx.restore();
+      }
+    });
+  }
+
+  const total = ops.reduce((s, o) => s + o.w, 0);
+  return { ops, total, blots, path, base, N, variant };
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   2.  InkWriter — owns the ink canvas + the "wet ink" canvas
+   ══════════════════════════════════════════════════════════════════════ */
+/** low-res factor for the wet (glossy halo) buffer — it's blurred anyway */
+const WET_SCALE = 1 / 3;
+
+/* ── Ink lifecycle ────────────────────────────────────────────────────────
+   Ink used to accumulate forever, which slowly blacked out the pane. Each
+   glyph is now an entry in a bounded list with an explicit life: it is drawn
+   progressively, held, then faded out and dropped. The pane therefore always
+   returns toward clear instead of silting up.                          */
+const INK_LIMITS = {
+  max: 4,          // overlapping inscriptions are allowed; the cap + fade
+  hold: 10.0,     // still guarantee the pane returns toward clear
+  fade: 3.0,
+};
+
+class InkWriter {
+  constructor() {
+    this.canvas = document.createElement('canvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.wet = document.createElement('canvas');
+    this.wctx = this.wet.getContext('2d');
+    this.tex = new THREE.CanvasTexture(this.canvas);
+    this.wtex = new THREE.CanvasTexture(this.wet);
+    for (const t of [this.tex, this.wtex]) {
+      t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter;
+      t.generateMipmaps = false; t.colorSpace = THREE.NoColorSpace;
+      t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    }
+    this.marks = [];        // every glyph on the pane, oldest first
+    this.size = new THREE.Vector2(1, 1);
+    this.head = null;
+    this._wetLife = 0;
+    this._fadeTick = 0;
+    this.elapsed = 0;
+  }
+
+  get count() { return this.marks.length; }
+  /** marks currently being written (used for placement collision tests) */
+  get live() { return this.marks; }
+
+  resize(w, h) {
+    const oldW = this.size.x, oldH = this.size.y;
+    this.size.set(w, h);
+    const cvs = [[this.canvas, this.ctx, w, h], [this.wet, this.wctx, Math.ceil(w * WET_SCALE), Math.ceil(h * WET_SCALE)]];
+    for (const [cv, c2, ww, hh] of cvs) {
+      cv.width = Math.max(2, ww | 0); cv.height = Math.max(2, hh | 0);
+      c2.setTransform(1, 0, 0, 1, 0, 0);
+      c2.clearRect(0, 0, cv.width, cv.height);
+    }
+    if (oldW > 1 && oldH > 1) {
+      const scale = Math.min(w,h) / Math.min(oldW,oldH);
+      for (const m of this.marks) {
+        m.cx *= w/oldW; m.cy *= h/oldH;
+        m.R *= scale; m.cs = m.R;
+        if (!m.finished) {
+          // Rebuild the partial snapshot at the new scale from the ops drawn
+          // so far. Finished marks keep their snapshot and blit it scaled.
+          this._makeSnap(m);
+          for (let i = 0; i < m.idx; i++) this._paintSnap(m, m.glyph.ops[i]);
+        }
+      }
+      if (this.marks.length) this._repaint();
+    }
+    this.tex.needsUpdate = true; this.wtex.needsUpdate = true;
+  }
+
+  clear() {
+    for (const [cv, c2] of [[this.canvas, this.ctx], [this.wet, this.wctx]]) {
+      c2.setTransform(1, 0, 0, 1, 0, 0);
+      c2.clearRect(0, 0, cv.width, cv.height);
+    }
+    this.marks.length = 0;
+    this.head = null; this._wetLife = 0;
+    this.tex.needsUpdate = true; this.wtex.needsUpdate = true;
+  }
+
+  /** paint a single op into one of the two buffers with the glyph transform.
+      The wet buffer gets no canvas blur filter: at 1/3 scale with linear
+      upsampling it is already soft, and per-op `ctx.filter` blurs are one of
+      the slowest canvas operations available. */
+  _paint(c2, it, op, k, wet) {
+    c2.save();
+    c2.setTransform(it.cs * k, it.sn * k, -it.sn * k, it.cs * k, it.cx * k, it.cy * k);
+    op.draw(c2);
+    if (wet && op.tip) op.tip(c2);
+    c2.restore();
+  }
+
+  /** paint an op into a mark's snapshot layer (glyph-local coords). */
+  _paintSnap(m, op) {
+    const c2 = m.snapCtx;
+    c2.save();
+    c2.setTransform(m.snapR, 0, 0, m.snapR, m.snapSize / 2, m.snapSize / 2);
+    op.draw(c2);
+    c2.restore();
+  }
+
+  /** allocate (or re-allocate) a mark's snapshot layer. */
+  _makeSnap(m) {
+    const size = Math.max(8, Math.ceil(m.R * 4.2));
+    const cv = document.createElement('canvas');
+    cv.width = size; cv.height = size;
+    m.snap = cv;
+    m.snapCtx = cv.getContext('2d');
+    m.snapSize = size;
+    m.snapR = m.R;
+  }
+
+  /**
+   * Re-render the whole pane. Finished marks blit from their snapshot layer
+   * (a few drawImages) instead of re-executing hundreds of vector strokes —
+   * that vector re-execution on every fade tick was the main source of
+   * fade-time jank. Marks still being drawn have no complete snapshot yet,
+   * so their finished prefix replays from ops (bounded: at most ~60 ops).
+   */
+  _repaint() {
+    const ctx = this.ctx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    for (const m of this.marks) {
+      if (m.alpha <= 0.002) continue;
+      ctx.save();
+      // per-mark alpha makes the fade a true dissolve, not a flat wash
+      ctx.globalAlpha = m.alpha;
+      if (m.finished && m.snap) {
+        const s = (m.snapSize * m.R) / m.snapR;
+        ctx.drawImage(m.snap, m.cx - s / 2, m.cy - s / 2, s, s);
+      } else {
+        for (let i = 0; i < m.idx; i++) this._paint(ctx, m, m.glyph.ops[i], 1, false);
+      }
+      ctx.restore();
+    }
+    this.tex.needsUpdate = true;
+  }
+
+  update(dt) {
+    this.elapsed += dt;
+    const now = this.elapsed;
+    this._fadeTick += dt;
+    let dirty = false;
+    let dirtyFlush = false;
+    let repaint = false;
+    let removed = false;
+
+    /* ---- advance every mark ------------------------------------------ */
+    for (const m of this.marks) {
+      if (!m.finished) {
+        m.t += dt / m.dur;
+        const target = easeInOutSine(clamp(m.t, 0, 1)) * m.glyph.total;
+        while (m.done < target && m.idx < m.glyph.ops.length) {
+          const op = m.glyph.ops[m.idx];
+          this._paint(this.ctx, m, op, 1, false);
+          // Faint layers (haze, scratches, dust) skip the wet buffer: they
+          // contribute nothing to the gloss, and painting them 3x per op is
+          // pure cost during the click-draw.
+          if (!op.dryOnly) {
+            this._paint(this.wctx, m, op, WET_SCALE, true);
+            this._wetLife = 1;
+          }
+          // The snapshot accumulates alongside the pane, so finishing costs
+          // nothing extra: no full re-render spike when the stroke completes.
+          if (m.snap) this._paintSnap(m, op);
+          dirty = true;
+          if (op.head) m.headLocal = op.head;
+          m.done += op.w;
+          m.idx++;
+        }
+        if (m.idx >= m.glyph.ops.length && !m.finished) {
+          m.finished = true;
+          m.finishedAt = now;
+          dirtyFlush = true;
+        }
+      } else {
+        const naturalFade = m.finishedAt + m.hold;
+        const fadeAt = Math.min(naturalFade, m.retireAt ?? Infinity);
+        const duration = m.retireAt == null ? m.fade : 1.35;
+        const want = clamp(1 - (now - fadeAt) / duration, 0, 1);
+        if (Math.abs(want - m.alpha) > .001) { m.alpha = want; repaint = true; }
+        if (want <= .001) m.dead = true;
+      }
+    }
+
+    for (let i = this.marks.length - 1; i >= 0; i--) {
+      if (this.marks[i].dead) { this.marks.splice(i, 1); removed = true; }
+    }
+    // Repaint only once, and at most 24 Hz while marks are fading. Do not
+    // rebuild the pane twice per frame, or indefinitely upload empty textures.
+    if (removed || (repaint && this._fadeTick >= 1/24)) {
+      this._fadeTick = 0;
+      this._repaint();
+    } else if (dirty) {
+      // Progressive drawing uploads the ink texture at most 30 Hz: a full
+      // RGBA upload every frame during the click-draw is a large part of the
+      // hitch on integrated GPUs. The stroke grows slowly enough that 30 Hz
+      // is visually identical. Completion always flushes immediately.
+      this._inkTick = (this._inkTick || 0) + dt;
+      if (this._inkTick >= 1/30 || dirtyFlush) {
+        this._inkTick = 0;
+        this.tex.needsUpdate = true;
+      }
+    }
+
+    /* ---- wet sheen evaporates fast ----------------------------------- */
+    if (this._wetLife > 0) {
+      const wc = this.wctx;
+      wc.save();
+      wc.setTransform(1, 0, 0, 1, 0, 0);
+      wc.globalCompositeOperation = 'destination-out';
+      wc.fillStyle = `rgba(0,0,0,${clamp(dt * 2.5, 0, .7)})`;
+      wc.fillRect(0, 0, this.wet.width, this.wet.height);
+      wc.restore();
+      this._wetLife = Math.max(0, this._wetLife - dt * 1.15);
+      this.wtex.needsUpdate = true;
+      if (this._wetLife === 0) { wc.clearRect(0, 0, this.wet.width, this.wet.height); this.wtex.needsUpdate = true; }
+    }
+
+
+    /* ---- live write-head, for the glow behind the glass --------------- */
+    const live = this.marks.find(m => !m.finished && m.headLocal);
+    this.head = live ? {
+      x: live.cx + live.headLocal.x * live.cs,
+      y: live.cy + live.headLocal.y * live.cs,
+      t: clamp(1 - live.t, 0, 1)
+    } : null;
+  }
+
+  /** Add a glyph. Requests retire the oldest glyph before drawing the new one. */
+  add(glyph, cx, cy, R, dur, opts = {}) {
+    if (this.marks.length >= INK_LIMITS.max) {
+      const oldest = this.marks.find(m => m.finished && m.retireAt == null)
+        || this.marks[0];
+      if (oldest) oldest.retireAt = this.elapsed;
+      // Under rapid clicking, don't keep an invisible queue of old glyphs.
+      while (this.marks.length >= INK_LIMITS.max + 1) {
+        this.marks.shift();
+        this._repaint();
+      }
+    }
+    const m = {
+      glyph, cx, cy, R,
+      cs: R, sn: 0,
+      idx: 0, done: 0, t: 0,
+      dur: dur ?? 2.8,
+      headLocal: null,
+      finished: false, finishedAt: 0,
+      alpha: 1, dead: false,
+      hold: opts.hold ?? INK_LIMITS.hold,
+      fade: opts.fade ?? INK_LIMITS.fade,
+      born: this.elapsed,
+      retireAt: null,
+      snap: null, snapCtx: null, snapSize: 0, snapR: R,
+    };
+    this._makeSnap(m);
+    this.marks.push(m);
+    return m;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   3.  Heptapod silhouettes — procedural, drawn to canvas
+   ══════════════════════════════════════════════════════════════════════ */
+/** A backlit forelimb with five tapering digits, receding into the fog. */
+function makeHeptapodTexture(seed, blurPx) {
+  const S = 512;
+  const cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const g = cv.getContext('2d');
+  const rng = mulberry32(seed);
+  g.fillStyle = '#fff';
+  g.filter = `blur(${blurPx}px)`;
+
+  // What is visible in the film is a hanging hand: a broad, indistinct wrist
+  // disappearing into the fog above, then five long separate drooping digits.
+  // No radial spokes, eyes, body, or spider-like silhouette.
+  g.beginPath();
+  g.moveTo(221, -36);
+  g.bezierCurveTo(217, 40, 197, 111, 187, 161);
+  g.bezierCurveTo(170, 196, 183, 223, 212, 236);
+  g.bezierCurveTo(243, 253, 293, 250, 322, 225);
+  g.bezierCurveTo(341, 208, 332, 177, 321, 148);
+  g.bezierCurveTo(310, 100, 294, 39, 294, -36);
+  g.closePath(); g.fill();
+
+  // Quadratic centre-line with a taper; outlined as one closed ribbon, not a
+  // stroked path (Canvas lineCap otherwise makes every fingertip a round dot).
+  function digit(x0, y0, cx, cy, x1, y1, w0, w1) {
+    const left = [], right = [];
+    for (let i = 0; i <= 32; i++) {
+      const t = i / 32, q = 1 - t;
+      const x = q*q*x0 + 2*q*t*cx + t*t*x1;
+      const y = q*q*y0 + 2*q*t*cy + t*t*y1;
+      const dx = 2*q*(cx-x0) + 2*t*(x1-cx);
+      const dy = 2*q*(cy-y0) + 2*t*(y1-cy);
+      const length = Math.hypot(dx,dy) || 1;
+      const uneven = 1 + .09 * Math.sin(t * 15 + seed * .07);
+      const w = lerp(w0,w1,Math.pow(t,.84)) * uneven;
+      left.push([x-dy/length*w,y+dx/length*w]);
+      right.push([x+dy/length*w,y-dx/length*w]);
+    }
+    g.beginPath(); g.moveTo(...left[0]);
+    for (const p of left.slice(1)) g.lineTo(...p);
+    for (const p of right.reverse()) g.lineTo(...p);
+    g.closePath(); g.fill();
+  }
+  const wob = () => rr(rng,-10,10);
+  digit(190,192,135+wob(),275,108+wob(),462,19,3.8);
+  digit(205,217,178+wob(),300,160+wob(),489,16,3.5);
+  digit(240,226,232+wob(),337,235+wob(),501,15,3.2);
+  digit(276,226,295+wob(),315,321+wob(),482,15,3.5);
+  digit(313,201,364+wob(),278,390+wob(),443,19,4.0);
+  g.filter = 'none';
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = true;
+  tex.colorSpace = THREE.NoColorSpace;
+  return tex;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   4.  Shared GLSL
+   ══════════════════════════════════════════════════════════════════════ */
+const GLSL_NOISE = /* glsl */`
+vec2 hash22(vec2 p){
+  p = vec2(dot(p,vec2(127.1,311.7)), dot(p,vec2(269.5,183.3)));
+  return fract(sin(p)*43758.5453123);
+}
+float hash12(vec2 p){
+  return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123);
+}
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f*f*(3.0-2.0*f);
+  float a = hash12(i), b = hash12(i+vec2(1,0)), c = hash12(i+vec2(0,1)), d = hash12(i+vec2(1,1));
+  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+}
+float fbm(vec2 p, int oct){
+  float s=0.0, a=0.5, n=0.0;
+  mat2 m = mat2(1.6,1.2,-1.2,1.6);
+  for(int i=0;i<8;i++){
+    if(i>=oct) break;
+    s += a*vnoise(p); n += a; a*=0.5; p = m*p;
+  }
+  return s/n;
+}
+`;
+
+/* ══════════════════════════════════════════════════════════════════════
+   5.  Renderer + passes
+   ══════════════════════════════════════════════════════════════════════ */
+/* surface runtime errors instead of failing to a black screen */
+const fatalEl = document.getElementById('fatal');
+function fatal(e) {
+  fatalEl.style.display = 'block';
+  fatalEl.textContent += (e && (e.stack || e.message) || e) + '\n';
+  console.error(e);
+}
+window.addEventListener('error', ev => fatal(ev.error || ev.message));
+window.addEventListener('unhandledrejection', ev => fatal(ev.reason));
+
+const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance' });
+/* DPR capped at 1.5: this scene is fog, blur and grain, so retina-class pixel
+   densities cost ~2x the shading for no visible gain. */
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+renderer.setClearColor(0x0a0e10, 1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.domElement.id = 'scene-canvas';
+renderer.domElement.setAttribute('aria-label', 'The observation window. Click or tap to ask the heptapods for an ink glyph.');
+document.body.insertBefore(renderer.domElement, document.body.firstChild);
+
+const quadGeo = new THREE.PlaneGeometry(2, 2);
+function fsMaterial(frag, uniforms) {
+  return new THREE.ShaderMaterial({
+    uniforms, vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }`,
+    fragmentShader: frag, depthTest: false, depthWrite: false
+  });
+}
+/* one reusable fullscreen-quad rig — no per-frame allocation */
+const quadScene = new THREE.Scene();
+const quadMesh = new THREE.Mesh(quadGeo, null);
+quadMesh.frustumCulled = false;
+quadScene.add(quadMesh);
+const quadCam = new THREE.Camera();
+function drawQuad(mat, target) {
+  quadMesh.material = mat;
+  renderer.setRenderTarget(target || null);
+  renderer.render(quadScene, quadCam);
+}
+
+/* Byte targets, not half-float: nothing in this chain needs HDR precision,
+   and halving the bytes per pixel halves the fullscreen bandwidth cost. */
+const RT_OPT = { type: THREE.UnsignedByteType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, stencilBuffer: false };
+let bgRT, compRT, bloomA, bloomB;
+function makeRTs(w, h) {
+  for (const rt of [bgRT, compRT, bloomA, bloomB]) rt && rt.dispose();
+  // The background is fog plus heavily blurred silhouettes: render it at half
+  // resolution and upscale in the composite. Same look, ~1/4 the shading cost.
+  bgRT = new THREE.WebGLRenderTarget(Math.max(2, Math.floor(w / 2)), Math.max(2, Math.floor(h / 2)), RT_OPT);
+  compRT = new THREE.WebGLRenderTarget(w, h, RT_OPT);
+  const bw = Math.max(2, Math.floor(w / 4)), bh = Math.max(2, Math.floor(h / 4));
+  bloomA = new THREE.WebGLRenderTarget(bw, bh, RT_OPT);
+  bloomB = new THREE.WebGLRenderTarget(bw, bh, RT_OPT);
+}
+
+/* ---------- 5a. the fog volume behind the glass ----------------------- */
+const bgScene = new THREE.Scene();
+const bgCam = new THREE.PerspectiveCamera(46, 1, 0.1, 200);
+bgCam.position.set(0, 0, 8);
+
+const fogUniforms = {
+  uTime: { value: 0 },
+  uCam: { value: new THREE.Vector2() },
+  uAspect: { value: 1 },
+  uRipple: { value: new THREE.Vector4(0, 0, -10, 0) }, // x,y = uv, z = start time, w = strength
+  uGlow: { value: new THREE.Vector4(0, 0, 0, 0) },      // x,y = uv, z = intensity, w = radius
+};
+const fogMat = fsMaterial(/* glsl */`
+precision highp float;
+varying vec2 vUv;
+uniform float uTime, uAspect;
+uniform vec2 uCam;
+uniform vec4 uRipple, uGlow;
+${GLSL_NOISE}
+void main(){
+  vec2 uv = vUv;
+  vec2 asp = vec2(uAspect, 1.0);
+  vec2 p = (uv - 0.5) * asp;
+
+  // The reference frame is a *bright*, milky grey-blue — much lighter than a
+  // moody night grade. Pushing the whole fog up keeps the ink reading as dark
+  // marks on pale glass.
+  vec3 cDeep = vec3(0.035, 0.063, 0.069);
+  vec3 cMid  = vec3(0.165, 0.234, 0.250);
+  vec3 cHaze = vec3(0.390, 0.474, 0.488);
+
+  // three parallaxing noise shells → volumetric haze
+  float t = uTime * 0.012;
+  float s0 = fbm(p * (0.55) + uCam * 0.055 + vec2(t * 0.70, -t * 0.40) + 0.0, 4);
+  float s1 = fbm(p * 0.97 + uCam * 0.155 + vec2(t * 1.20, -t * 0.70) + 13.0, 4);
+  float s2 = fbm(p * 1.39 + uCam * 0.255 + vec2(t * 1.70, -t * 1.00) + 27.0, 3);
+
+  // broad vertical gradient: bright hazy band through the middle
+  float band = exp(-pow((uv.y - 0.69) * 1.90, 2.0));
+
+  vec3 col = mix(cDeep, cMid, smoothstep(-0.10, 0.55, uv.y));
+  col = mix(col, cHaze, band * 0.62 * (0.45 + s1 * 0.85));
+
+  // wispy fog structure
+  float wisp = s0 * 0.55 + s1 * 0.30 + s2 * 0.15;
+  col += (wisp - 0.5) * vec3(0.14, 0.16, 0.16) * (0.35 + band * 0.9);
+  col *= 0.55 + 0.75 * smoothstep(0.05, 0.85, wisp + band * 0.35);
+  // the dark sill visible at the bottom of the observation chamber
+  col *= 1.0 - .53 * (1.0 - smoothstep(.025,.09,uv.y));
+  col *= 1.0 - .17 * smoothstep(.995,1.0,uv.y);
+
+  // click ripple
+  if(uRipple.w > 0.001){
+    float d = length((uv - uRipple.xy) * asp);
+    float age = uTime - uRipple.z;
+    if(age > 0.0 && age < 3.4){
+      float r = age * 0.34;
+      float ring = exp(-pow((d - r) / 0.045, 2.0)) * exp(-age * 1.25);
+      col += ring * uRipple.w * vec3(0.30, 0.36, 0.38);
+      col += exp(-pow(d / (0.10 + age * 0.30), 2.0)) * uRipple.w * 0.10 * exp(-age * 1.6);
+    }
+  }
+
+  // soft light spilling around the writing limb
+  if(uGlow.z > 0.001){
+    float d = length((uv - uGlow.xy) * asp);
+    col += exp(-pow(d / uGlow.w, 2.0)) * uGlow.z * vec3(0.25, 0.30, 0.32);
+  }
+
+  gl_FragColor = vec4(max(col, 0.0), 1.0);
+}`, fogUniforms);
+const fogQuad = new THREE.Mesh(quadGeo, fogMat);
+fogQuad.frustumCulled = false;
+bgScene.add(fogQuad);
+
+/* ---------- 5b. heptapod billboards ---------------------------------- */
+/* Two textures only — one heavily blurred (the creature further back) and one
+   softer. Reused by both pods so each figure reads as the same species. */
+const POD_TEX = [
+  makeHeptapodTexture(11, 9.0),
+  makeHeptapodTexture(37, 4.5),
+];
+const POD_FRAG = /* glsl */`
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D tPod;
+uniform vec3 uFog;
+uniform float uDepth, uTime, uSeed, uOpacity, uReach;
+uniform vec2 uTexOff;
+void main(){
+  vec2 uv = vUv;
+  float a = texture2D(tPod, uv + uTexOff).a;
+  if(a < 0.004) discard;
+  float d = uDepth;                        // 0 = near, 1 = far
+  a = smoothstep(0.02, 0.42, a);           // soften the silhouette boundary
+  // atmospheric perspective: far shapes wash into the fog
+  // Heavily atmospheric: even the near creature is a soft, low-contrast mass
+  // behind milky glass, not a hard black cut-out.
+  vec3 col = mix(vec3(0.075, 0.090, 0.100), uFog, d * 0.42 + 0.30);
+  float alpha = a * uOpacity * (1.0 - d * 0.22) * 0.62;
+  // (edge softened above via smoothstep on the sampled alpha)
+  gl_FragColor = vec4(col, alpha);
+}`;
+const POD_VERT = /* glsl */`
+varying vec2 vUv;
+void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`;
+
+const pods = [];
+function makePod(i, z, scale, texIdx, seed) {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      tPod: { value: POD_TEX[texIdx] },
+      uFog: { value: new THREE.Color(0.29, 0.35, 0.375) },
+      uDepth: { value: 0 }, uTime: { value: 0 }, uSeed: { value: seed },
+      uOpacity: { value: 1 }, uReach: { value: 0 },
+      uTexOff: { value: new THREE.Vector2() },
+    },
+    vertexShader: POD_VERT, fragmentShader: POD_FRAG,
+    transparent: true, depthTest: false, depthWrite: false,
+  });
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+  m.position.z = z;
+  m.scale.setScalar(scale);
+  bgScene.add(m);
+  const rng = mulberry32(seed);
+  const pod = {
+    mesh: m, mat, z, baseScale: scale, seed, rng,
+    home: new THREE.Vector3(rr(rng, -2, 2), rr(rng, -0.5, 1.5), z),
+    amp: new THREE.Vector3(rr(rng, 1.6, 3.4), rr(rng, 1.0, 2.2), 0),
+    spd: new THREE.Vector3(rr(rng, .035, .075), rr(rng, .028, .060), 0),
+    ph: [rr(rng, 0, 9), rr(rng, 0, 9), rr(rng, 0, 9)],
+    depth: 0, stretch: rr(rng, .05, .11),
+  };
+  pod.homeX = pod.home.x; pod.homeY = pod.home.y;
+  m.position.copy(pod.home);
+  pods.push(pod);
+  return pod;
+}
+/* Two presences only: one near the right of the window, one behind the
+   writing on the left. Resize keeps their separation on narrow screens. */
+const podNear = makePod(0, -17.0, 14.0, 1, 207);
+const podFar = makePod(1, -30.0, 12.5, 0, 419);
+for (const pod of pods) pod.response = new THREE.Vector2();
+podNear.homeY = 1.0;
+podFar.homeY = -0.9;
+
+/* ---------- 5c. glass composite (the big one) ------------------------ */
+const compUniforms = {
+  tBg: { value: null }, tInk: { value: null }, tWet: { value: null },
+  uRes: { value: new THREE.Vector2() },
+  uTime: { value: 0 },
+  uMouse: { value: new THREE.Vector2() },
+  uAspect: { value: 1 },
+  uGlow: { value: new THREE.Vector4(0, 0, 0, 0.06) },
+  uRipple: { value: new THREE.Vector4(0, 0, -10, 0) },
+  uHeat: { value: 0 },
+};
+const compMat = fsMaterial(/* glsl */`
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D tBg, tInk, tWet;
+uniform vec2 uRes, uMouse;
+uniform float uTime, uAspect, uHeat;
+uniform vec4 uGlow, uRipple;
+${GLSL_NOISE}
+
+float inkA(vec2 uv){ return texture2D(tInk, uv).a; }
+
+vec3 spiralBlur(sampler2D tex, vec2 uv, float radius){
+  vec3 sum = texture2D(tex, uv).rgb;
+  const int TAPS = 8;
+  for(int i=0;i<TAPS;i++){
+    float fi = float(i) + 0.5;
+    float ang = fi * 2.39996323;
+    float rad = radius * sqrt(fi / float(TAPS));
+    vec2 off = vec2(cos(ang)/uAspect, sin(ang)) * rad;
+    sum += texture2D(tex, uv + off).rgb;
+  }
+  return sum / float(TAPS + 1);
+}
+
+void main(){
+  vec2 uv = vUv;
+  vec2 asp = vec2(uAspect, 1.0);
+  vec2 px = 1.0 / uRes;
+
+  /* ---- old-glass low frequency warp -------------------------------- */
+  float w1 = fbm(uv * vec2(1.6, 1.1) + vec2(uTime * 0.008, 0.0), 2);
+  float w2 = fbm(uv * vec2(1.3, 1.7) - vec2(0.0, uTime * 0.006), 2);
+  vec2 warp = (vec2(w1, w2) - 0.5) * 0.0028;
+
+  /* ---- frost / condensation mask ----------------------------------- */
+  vec2 edgeD = abs(uv - 0.5) * 2.0;
+  float edge = smoothstep(0.30, 1.02, max(edgeD.x, edgeD.y));
+  float f1 = fbm(uv * vec2(3.4, 2.0) * 1.5 + vec2(uTime * 0.010, uTime * 0.006), 4);
+  float f2 = fbm(uv * vec2(7.5, 4.4) + vec2(-uTime * 0.014, uTime * 0.009), 3);
+  float frost = f1 * 0.68 + f2 * 0.32;
+  frost = smoothstep(0.30, 0.86, frost + edge * 0.52);
+
+  float R = 0.0016 + frost * 0.0125 + f2 * 0.0030;
+
+  /* ---- condensation droplets --------------------------------------- */
+  vec2 dp = uv * asp * 34.0;
+  vec2 cell = floor(dp), dloc = fract(dp);
+  float dh = hash12(cell);
+  float have = step(0.86, hash12(cell + 19.3));
+  vec2 dc = vec2(0.28 + 0.44 * hash12(cell + 1.7), 0.28 + 0.44 * hash12(cell + 8.2));
+  float dRad = (0.09 + 0.17 * dh) * have;
+  float dDist = length(dloc - dc);
+  float drop = smoothstep(dRad, dRad * 0.80, dDist) * have;
+  vec2 dropOff = normalize(dloc - dc + 1e-5) * drop * 0.010;
+  dropOff.x /= uAspect;
+
+  /* ---- refracted, frosted background ------------------------------- */
+  vec2 bgUV = uv + warp + dropOff * 0.5;
+  vec3 col = spiralBlur(tBg, bgUV, R);
+  // droplets focus the image a little
+  col = mix(col, texture2D(tBg, bgUV + dropOff * 1.6).rgb, drop * 0.45);
+
+  // haze lift through the pane
+  col = col * 0.94 + vec3(0.055, 0.068, 0.074) * (0.35 + frost * 0.5);
+
+  /* ---- faint room reflections on the glass ------------------------- */
+  // long, soft vertical smears of the overhead lights — broad and very dim,
+  // never a distinct blob
+  vec2 r = uv;
+  float band = smoothstep(0.02, 0.30, r.y) * (1.0 - smoothstep(0.72, 1.04, r.y));
+  float lamp1 = exp(-pow((r.x - 0.155) / 0.075, 2.0)) * band;
+  float lamp2 = exp(-pow((r.x - 0.845) / 0.055, 2.0)) * band * 0.7;
+  float ceil = smoothstep(0.62, 1.0, r.y) * 0.055;
+  col += vec3(0.030, 0.032, 0.030) * (lamp1 + lamp2 + ceil);
+
+  /* ---- ink on the pane --------------------------------------------- */
+  float ia = inkA(uv);
+  float ix = inkA(uv + vec2(px.x, 0.0) * 1.5) - inkA(uv - vec2(px.x, 0.0) * 1.5);
+  float iy = inkA(uv + vec2(0.0, px.y) * 1.5) - inkA(uv - vec2(0.0, px.y) * 1.5);
+  vec2 grad = vec2(ix, iy);
+
+  // ink on glass displaces what's behind it. A single offset fetch is enough
+  // here — the displacement hides under nearly-opaque ink, so a second full
+  // blur kernel per pixel buys nothing visible.
+  col = texture2D(tBg, bgUV + grad * 0.020).rgb;
+
+  /* Ink coverage ramps. Deliberately low: the stroke is a thin scratchy line
+     whose peak alpha is well under 1 and much lower along most of its length,
+     so a high gate here erases most of the ring. The probe harness measures
+     ringFractionVisible against these numbers to keep it honest. */
+  float core  = smoothstep(0.30, 0.80, ia);
+  float bodyA = smoothstep(0.055, 0.30, ia);
+  float edgeN = clamp(length(grad) * 14.0, 0.0, 1.0);
+
+  vec3 inkThin = vec3(0.132, 0.148, 0.155);
+  vec3 inkCore = vec3(0.020, 0.024, 0.026);
+  vec3 inkCol  = mix(inkThin, inkCore, core);
+
+  // wet ink darkens fresh strokes while they are still reflective
+  float wa = texture2D(tWet, uv).a;
+  float waS = smoothstep(0.010, 0.26, wa);
+
+  // full weight wherever there is genuine ink, so a thin line still reads dark
+  col = mix(col, inkCol, bodyA);
+  // wet layer darkens fresh ink; no bright fringe or gloss halo — the pale
+  // outline that used to trace fresh strokes read as a glow rather than ink
+  col = mix(col, inkCol * 0.62, waS * 0.42);
+
+  /* ---- click ripple through the glass ------------------------------ */
+  if(uRipple.w > 0.001){
+    float age = uTime - uRipple.z;
+    float d = length((uv - uRipple.xy) * asp);
+    if(age > 0.0 && age < 3.0){
+      float r = age * 0.34;
+      float ring = exp(-pow((d - r) / 0.030, 2.0)) * exp(-age * 1.3);
+      col += ring * uRipple.w * vec3(0.16, 0.20, 0.215);
+      col += ring * uRipple.w * edgeN * 0.10;
+    }
+  }
+
+  /* ---- presence of the cursor / limb behind the glass --------------- */
+  // a whisper of scattered light where the glass is disturbed — tied to the
+  // actual cursor position so it tracks the pointer exactly
+  float dm = length((uv - uMouse) * asp);
+  col += exp(-pow(dm / 0.070, 2.0)) * (0.022 + uHeat * 0.048) * vec3(0.42, 0.52, 0.56);
+
+  /* ---- window frame falloff ---------------------------------------- */
+  float frameDark = smoothstep(0.55, 1.15, max(edgeD.x, edgeD.y * 1.02));
+  col *= 1.0 - frameDark * 0.62;
+  float inner = smoothstep(1.16, 0.92, max(edgeD.x, edgeD.y));
+  col *= 0.55 + 0.45 * inner;
+
+  gl_FragColor = vec4(max(col, 0.0), 1.0);
+}`, compUniforms);
+
+/* ---------- 5d. bloom ------------------------------------------------ */
+const brightMat = fsMaterial(/* glsl */`
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D tIn;
+uniform vec2 uTexel;
+void main(){
+  vec3 s = vec3(0.0);
+  s += texture2D(tIn, vUv + uTexel*vec2(-1.0,-1.0)).rgb;
+  s += texture2D(tIn, vUv + uTexel*vec2( 1.0,-1.0)).rgb;
+  s += texture2D(tIn, vUv + uTexel*vec2(-1.0, 1.0)).rgb;
+  s += texture2D(tIn, vUv + uTexel*vec2( 1.0, 1.0)).rgb;
+  vec3 c = s * 0.25;
+  float l = dot(c, vec3(0.2126,0.7152,0.0722));
+  float k = smoothstep(0.30, 0.95, l);
+  gl_FragColor = vec4(c * k, 1.0);
+}`, { tIn: { value: null }, uTexel: { value: new THREE.Vector2() } });
+
+const blurMat = fsMaterial(/* glsl */`
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D tIn;
+uniform vec2 uDir;
+void main(){
+  vec3 s = texture2D(tIn, vUv).rgb * 0.227027;
+  s += (texture2D(tIn, vUv + uDir*1.3846).rgb + texture2D(tIn, vUv - uDir*1.3846).rgb) * 0.316216;
+  s += (texture2D(tIn, vUv + uDir*3.2308).rgb + texture2D(tIn, vUv - uDir*3.2308).rgb) * 0.070270;
+  gl_FragColor = vec4(s, 1.0);
+}`, { tIn: { value: null }, uDir: { value: new THREE.Vector2() } });
+
+/* ---------- 5e. final grade ------------------------------------------ */
+const finalUniforms = {
+  tComp: { value: null }, tBloom: { value: null },
+  uRes: { value: new THREE.Vector2() }, uTime: { value: 0 },
+};
+const finalMat = fsMaterial(/* glsl */`
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D tComp, tBloom;
+uniform vec2 uRes;
+uniform float uTime;
+${GLSL_NOISE}
+void main(){
+  vec2 uv = vUv;
+  vec2 d = uv - 0.5;
+  float r2 = dot(d,d);
+
+  // chromatic aberration, radial
+  float ca = 0.00018 + r2 * 0.0010;
+  vec3 col;
+  col.r = texture2D(tComp, uv + d * ca).r;
+  col.g = texture2D(tComp, uv).g;
+  col.b = texture2D(tComp, uv - d * ca).b;
+
+  col += texture2D(tBloom, uv).rgb * 0.55;
+
+  // grade: cold slate, lifted blacks
+  float l = dot(col, vec3(0.2126,0.7152,0.0722));
+  col = mix(vec3(l), col, 0.80);
+  col += vec3(0.010, 0.019, 0.026) * (1.0 - smoothstep(0.0, 0.35, l));
+  col = pow(max(col, 0.0), vec3(1.06, 1.02, 0.98));
+  col = (col - 0.5) * 1.075 + 0.5 + 0.004;
+
+  // vignette
+  col *= 1.0 - smoothstep(0.20, 0.86, r2) * 0.72;
+
+  // grain
+  float g = hash12(uv * uRes + fract(uTime) * 719.7);
+  col += (g - 0.5) * 0.014;
+
+  gl_FragColor = vec4(max(col, 0.0), 1.0);
+}`, finalUniforms);
+
+/* ══════════════════════════════════════════════════════════════════════
+   6.  Setup / resize
+   ══════════════════════════════════════════════════════════════════════ */
+const ink = new InkWriter();
+let W = 1, H = 1;
+
+function resize() {
+  const cssW = Math.max(1, window.innerWidth), cssH = Math.max(1, window.innerHeight);
+  W = cssW; H = cssH;
+  const dpr = renderer.getPixelRatio();
+
+  renderer.setSize(cssW, cssH, false);
+  const rw = Math.max(2, Math.floor(cssW * dpr));
+  const rh = Math.max(2, Math.floor(cssH * dpr));
+  makeRTs(rw, rh);
+
+  bgCam.aspect = cssW / cssH;
+  bgCam.updateProjectionMatrix();
+  // Keep one hand on each side of the pane at every aspect ratio.
+  const fov = Math.tan(THREE.MathUtils.degToRad(bgCam.fov * .5));
+  podNear.homeX = (bgCam.position.z - podNear.z) * 2 * fov * bgCam.aspect * .18;
+  podFar.homeX = -(bgCam.position.z - podFar.z) * 2 * fov * bgCam.aspect * .30;
+
+  /* Ink is sampled with plain UVs into bgRT/compRT. Derive its dimensions
+     from the *same* rw/rh used for those targets; getDrawingBufferSize can
+     differ before a browser has committed the resize, producing ellipses. */
+  const budget = 1.5e6;
+  const k = Math.min(1, Math.sqrt(budget / Math.max(rw * rh, 1)));
+  ink.resize(Math.max(2, Math.round(rw * k)), Math.max(2, Math.round(rh * k)));
+
+  compUniforms.uRes.value.set(ink.canvas.width, ink.canvas.height);
+  compUniforms.uAspect.value = cssW / cssH;
+  finalUniforms.uRes.value.set(rw, rh);
+  fogUniforms.uAspect.value = cssW / cssH;
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ══════════════════════════════════════════════════════════════════════
+   7.  Interaction
+   ══════════════════════════════════════════════════════════════════════ */
+const mouse = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, moved: 0, inside: false };
+/* animation state, declared here because the input handlers below close over
+   it and the rAF loop further down drives it */
+let clockT = 0, heatPulse = 0, last = performance.now() / 1000;
+
+const reticle = document.getElementById('reticle');
+
+function onMove(cx, cy) {
+  mouse.tx = cx / W; mouse.ty = 1 - cy / H;
+  mouse.moved = Math.min(mouse.moved + 1, 60);
+  mouse.inside = true;
+  reticle.style.opacity = '1';
+  reticle.style.transform = `translate3d(${cx}px, ${cy}px, 0)`;
+}
+/* Tracking via rAF rather than the event alone: pointermove can fire in bursts
+   (or be coalesced), and a cursor that lags the real pointer feels broken. */
+window.addEventListener('pointermove', e => onMove(e.clientX, e.clientY), { passive:true });
+window.addEventListener('pointerleave', () => {
+  mouse.inside = false;
+  reticle.style.opacity = '0';
+});
+
+// A request produces a *complete* logogram, not an unexplained splat. The
+// creature responds at the requested location; the oldest inscription starts
+// dissolving if the glass is already full.
+function requestGlyph(nx, ny) {
+  const R = Math.min(ink.size.x * .28, ink.size.y * .225);
+  const mx = (R * 1.28) / ink.size.x, my = (R * 1.28) / ink.size.y;
+  nx = clamp(nx, mx, 1-mx);
+  ny = clamp(ny, my, 1-my);
+  // Ink is translucent and composited in draw order. Clicking an existing
+  // glyph adds a second inscription *on top of it*; nothing is erased first.
+  glyphSeed = (glyphSeed * 1103515245 + 12345) >>> 0;
+  reticle.style.setProperty('--twist', `${(glyphSeed % 5) * 72}deg`);
+  ink.add(makeRingGlyph(glyphSeed, responseIndex++ % 8), nx*ink.size.x, ny*ink.size.y, R, 3.0);
+  spawnTimer = 9;
+  fogUniforms.uRipple.value.set(nx, 1-ny, clockT, .7);
+  compUniforms.uRipple.value.set(nx, 1-ny, clockT, .7);
+  heatPulse = 1;
+}
+
+window.addEventListener('pointerdown', e => {
+  if (e.button !== 0 && e.pointerType === 'mouse') return;
+  onMove(e.clientX, e.clientY);
+  reticle.style.opacity = '1';
+  requestGlyph(e.clientX/W, e.clientY/H);
+});
+
+let uiHidden = false;
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    requestGlyph(mouse.inside ? mouse.tx : .42, mouse.inside ? 1-mouse.ty : .5);
+  } else if (e.key.toLowerCase() === 'c') {
+    ink.clear(); spawnTimer = 2;
+  } else if (e.key.toLowerCase() === 'h') {
+    uiHidden = !uiHidden;
+    document.getElementById('ui').classList.toggle('hide', uiHidden);
+    document.getElementById('title').classList.toggle('hide', uiHidden);
+  }
+});
+
+/* ---- glyph spawning -------------------------------------------------- */
+let glyphSeed = 1337;
+let responseIndex = 1;   // cycle visual compositions; no translation is implied
+let spawnTimer = 7;
+
+function spawnGlyph() {
+  // Passive scene: just one inscription at a time. Additional glyphs are
+  // responses to the visitor, not endless background scribbling.
+  if (ink.count) return;
+  requestGlyph(rr(Math.random,.35,.46), rr(Math.random,.44,.55));
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   8.  Loop
+   ══════════════════════════════════════════════════════════════════════ */
+let frame = 0;
+const DEBUG_BILT = /[?&]debug/.test(location.search);
+
+function step(dt, drawIt = true) {
+  clockT += dt; frame++;
+
+  // easing mouse
+  const ease = 1 - Math.pow(0.0016, dt);
+  mouse.x = lerp(mouse.x, mouse.tx, ease);
+  mouse.y = lerp(mouse.y, mouse.ty, ease);
+
+  // spawn cadence — faster while the user is playing with it
+  /* Spawn cadence scales with engagement, but stays slow enough that the pane
+     never silts up: idle is roughly one ring every 6-9s, active 3-5s. */
+  spawnTimer -= dt;
+  if (spawnTimer <= 0) {
+    const busy = Math.min(mouse.moved, 60) / 60;
+    spawnGlyph();
+    const lo = lerp(6.0, 3.2, busy);
+    spawnTimer = rr(Math.random, lo, lo + 3.0);
+  }
+
+  ink.update(dt);
+
+  /* --- fog + pods --- */
+  fogUniforms.uTime.value = clockT;
+  fogUniforms.uCam.value.set((mouse.x - 0.5), (mouse.y - 0.5));
+
+  /* The write-head only glows while the stroke is genuinely in progress.
+   Once a glyph is finished there is no head, and the previous frame's glow
+   must be allowed to fall away rather than lingering as a stray bright dot. */
+  const head = ink.head;
+  if (head) {
+    const hx = head.x / ink.size.x, hy = 1 - head.y / ink.size.y;
+    const k = clamp(head.t, 0, 1);
+    fogUniforms.uGlow.value.set(hx, hy, 0.34 * k, 0.050 + 0.018 * k);
+    compUniforms.uGlow.value.set(hx, hy, 1.0, 0.040);
+  } else {
+    const g = fogUniforms.uGlow.value;
+    g.z = lerp(g.z, 0, dt * 4);
+    g.w = lerp(g.w, 0.04, dt * 4);
+    compUniforms.uGlow.value.z = lerp(compUniforms.uGlow.value.z, 0, dt * 4);
+  }
+
+  heatPulse = Math.max(0, heatPulse - dt * 0.55);
+
+  for (const p of pods) {
+    const t = clockT;
+    const driftX = Math.sin(t * p.spd.x + p.ph[0]) * p.amp.x * .30;
+    const driftY = Math.sin(t * p.spd.y + p.ph[1]) * p.amp.y * .30;
+    const reach = ink.head || (mouse.inside ? { x:mouse.x*ink.size.x, y:(1-mouse.y)*ink.size.y } : null);
+    const targetX = reach ? (reach.x/ink.size.x-.5) * (p === podNear ? 2.4 : .65) : 0;
+    const targetY = reach ? (.5-reach.y/ink.size.y) * (p === podNear ? 1.4 : .4) : 0;
+    const response = 1 - Math.exp(-dt * (ink.head ? 1.8 : .85));
+    p.response.x = lerp(p.response.x, targetX, response);
+    p.response.y = lerp(p.response.y, targetY, response);
+    p.mesh.position.x = p.homeX + driftX + p.response.x;
+    p.mesh.position.y = p.homeY + driftY + p.response.y;
+    // jellyfish undulation: squash + stretch
+    const sq = Math.sin(t * 0.42 + p.ph[2]);
+    p.mesh.scale.set(
+      p.baseScale * (1 + sq * p.stretch),
+      p.baseScale * (1 - sq * p.stretch * 0.85),
+      1
+    );
+    p.mesh.rotation.z = Math.sin(t * 0.19 + p.ph[0]) * 0.09;
+    p.depth = clamp((-p.z - 10) / 26, 0, 1);
+    p.mat.uniforms.uDepth.value = p.depth;
+    p.mat.uniforms.uTime.value = t;
+    p.mat.uniforms.uOpacity.value = lerp(0.76, 0.64, p.depth);
+
+  }
+
+  bgCam.position.x = (mouse.x - .5) * 0.5;
+  bgCam.position.y = (mouse.y - .5) * 0.4;
+  bgCam.lookAt(0, 0, -30);
+
+  /* --- optional: blit the raw ink buffer on top, for tuning ---------
+     Enabled with ?debug. Runs even when not drawing to the screen, so it is
+     also usable during a ?warm fast-forward. */
+  if (DEBUG_BILT && frame % 20 === 0) {
+    let el = document.getElementById('dbgInk');
+    if (!el) {
+      el = document.createElement('canvas'); el.id = 'dbgInk';
+      el.style.cssText = 'position:fixed;left:0;top:0;z-index:40;opacity:.92;pointer-events:none';
+      document.body.appendChild(el);
+      document.getElementById('dbgTxt').style.display = 'block';
+    }
+    el.width = ink.canvas.width; el.height = ink.canvas.height;
+    el.style.width = '460px';
+    el.getContext('2d').drawImage(ink.canvas, 0, 0);
+    let sum = 0, nz = 0, maxA = 0;
+    try {
+      const px = ink.ctx.getImageData(0, 0, ink.canvas.width, ink.canvas.height).data;
+      for (let i = 3; i < px.length; i += 4 * 29) {
+        if (px[i] > 8) { nz++; sum += px[i]; }
+        if (px[i] > maxA) maxA = px[i];
+      }
+    } catch (e) { /* canvas not readable — skip */ }
+    document.getElementById('dbgTxt').textContent =
+      `frame ${frame}  clock ${clockT.toFixed(1)}s\n` +
+      `marks: ${ink.count}  (cap ${INK_LIMITS.max})\n` +
+      `progress: ${ink.marks.map(m => `${m.idx}/${m.glyph.ops.length} t=${m.t.toFixed(2)} a=${m.alpha.toFixed(2)}`).join('\n          ') || '—'}\n` +
+      `ink: ${nz} sampled, peakAlpha ${maxA}, meanAlpha ${nz ? (sum / nz).toFixed(0) : 0}\n` +
+      `ink ${ink.canvas.width}x${ink.canvas.height} / css ${W}x${H}\n` +
+      `dom ${document.documentElement.clientWidth}x${document.documentElement.clientHeight} / scene ${renderer.domElement.clientWidth}x${renderer.domElement.clientHeight}`;
+  }
+
+  if (!drawIt) return;
+
+  renderer.setRenderTarget(bgRT);
+  renderer.render(bgScene, bgCam);
+
+  /* --- glass composite --- */
+  compUniforms.tBg.value = bgRT.texture;
+  compUniforms.tInk.value = ink.tex;
+  compUniforms.tWet.value = ink.wtex;
+  compUniforms.uTime.value = clockT;
+  compUniforms.uMouse.value.set(mouse.x, 1 - mouse.y);
+  compUniforms.uHeat.value = heatPulse;
+  drawQuad(compMat, compRT);
+
+  /* --- bloom --- */
+  brightMat.uniforms.tIn.value = compRT.texture;
+  brightMat.uniforms.uTexel.value.set(1 / compRT.width, 1 / compRT.height);
+  drawQuad(brightMat, bloomA);
+  blurMat.uniforms.tIn.value = bloomA.texture;
+  blurMat.uniforms.uDir.value.set(1 / bloomA.width, 0);
+  drawQuad(blurMat, bloomB);
+  blurMat.uniforms.tIn.value = bloomB.texture;
+  blurMat.uniforms.uDir.value.set(0, 1 / bloomA.height);
+  drawQuad(blurMat, bloomA);
+
+  /* --- final --- */
+  finalUniforms.tComp.value = compRT.texture;
+  finalUniforms.tBloom.value = bloomA.texture;
+  finalUniforms.uTime.value = clockT;
+  drawQuad(finalMat, null);
+
+  
+
+  /* --- reticle --- */
+  const pulse = 1 + heatPulse * 0.55;
+  reticle.style.setProperty('--pulse', pulse.toFixed(3));
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   9.  Boot
+   ══════════════════════════════════════════════════════════════════════ */
+function tick() {
+  requestAnimationFrame(tick);
+  const now = performance.now() / 1000;
+  const dt = Math.min(now - last, 0.05);
+  last = now;
+  step(dt);
+}
+
+/* Optional deterministic preview flags for screenshots and tests. */
+const qs = new URLSearchParams(location.search);
+
+/* Open with one inscription in the reference composition — left of the
+   heptapod hand, nearly half the viewport tall. */
+ink.add(makeRingGlyph(20240515, 0),
+  ink.size.x * 0.39, ink.size.y * 0.49,
+  Math.min(ink.size.x * .31, ink.size.y * .255), 3.1);
+
+renderer.compile(bgScene, bgCam);
+
+/* Deterministic warm-up + scripted pointer, for screenshots and tests.
+   `?warm=9` fast-forwards nine seconds with a fixed timestep and paints once;
+   `?at=x,y` places the cursor; `?click` fires an answer at that point. */
+const warm = clamp(parseFloat(qs.get('warm')) || 0, 0, 30);
+const at = qs.get('at');
+if (at) {
+  const [ax, ay] = at.split(',').map(Number);
+  onMove(clamp(ax, 0, W), clamp(ay, 0, H));
+  mouse.x = mouse.tx; mouse.y = mouse.ty;
+  mouse.moved = 40;
+}
+if (qs.has('click')) requestGlyph(mouse.tx, 1-mouse.ty);
+if (warm > 0) {
+  for (let i = 0, n = Math.round(warm * 60); i < n; i++) step(1 / 60, false);
+  step(0, true);
+  document.getElementById('boot')?.remove();
+  last = performance.now() / 1000;
+  requestAnimationFrame(tick);
+} else {
+  requestAnimationFrame(() => {
+    const b = document.getElementById('boot');
+    b.classList.add('gone');
+    setTimeout(() => b.remove(), 1300);
+  });
+  tick();
+}
+</script>
+</body>
+</html>

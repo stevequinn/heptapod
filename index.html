@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Heptapod — Ink on Glass</title>
+<link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+
+<div id="reticle" aria-hidden="true">
+  <i class="arc"></i><i class="ring"></i><i class="dot"></i>
+</div>
+
+<header id="title">
+  <span>Heptapod&nbsp;&nbsp;/&nbsp;&nbsp;Observation&nbsp;Window</span>
+  <span id="title-mode">Heptapod&nbsp;B&nbsp;&nbsp;·&nbsp;&nbsp;Containment</span>
+</header>
+
+<footer id="ui">
+  <span id="hint-move"><b class="k">Move</b>They follow &nbsp;·&nbsp; <b class="k">Click</b>Ask for a glyph</span>
+  <span id="hint-keys"><b class="k">Space</b>Again &nbsp;·&nbsp; <b class="k">U</b>Unwrap &nbsp;·&nbsp; <b class="k">C</b>Clear &nbsp;·&nbsp; <b class="k">H</b>Hide</span>
+</footer>
+
+<!-- Two layers: ink is multiplied into the scene so it reads as being on the
+     same glass, while the labels have to blend normally or `multiply` eats
+     them against a dark background. -->
+<canvas id="unwrap" aria-hidden="true"></canvas>
+<canvas id="unwrap-labels" aria-hidden="true"></canvas>
+
+<div id="boot">Listening&hellip;</div>
+<pre id="fatal" hidden></pre>
+<pre id="debug" hidden></pre>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
