@@ -127,8 +127,9 @@ function spawnGlyph() {
 
 /* ── actions ───────────────────────────────────────────────────────────── *
    One definition per action, shared by the keyboard and the on-screen
-   buttons. The buttons are the only way to reach these on a touch screen, so
-   they are the primary UI and the key badges are the shortcut hint. */
+   buttons. On a touch screen the buttons are the way to reach Clear and
+   Sound; Ask is the scene itself (tap anywhere) and Unwrap is keyboard-only,
+   so neither needs a button there. */
 
 function askGlyph() {
   requestGlyph(pointer.state.inside ? pointer.state.tx : 0.42,
@@ -166,7 +167,6 @@ function toggleSound() {
 
 for (const [id, fn] of [
   ['act-glyph', askGlyph],
-  ['act-unwrap', () => setUnwrap(!unwrap.on)],
   ['act-clear', clearInk],
   ['act-hide', () => chrome.toggleHidden()],
   ['act-sound', toggleSound],
@@ -175,6 +175,7 @@ for (const [id, fn] of [
 }
 paintSound();
 
+/* Unwrap deliberately has no button — it is a keyboard view (U). */
 const keys = createKeys();
 keys.on('space', askGlyph);
 keys.on('c', clearInk);

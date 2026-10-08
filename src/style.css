@@ -186,33 +186,38 @@ body {
 
 /* ── responsive / accessibility ────────────────────────────────────────── */
 
+/* Coarse pointer: no hovering cursor, no reticle. */
 @media (pointer: coarse) {
   body { cursor: auto; }
   #reticle { display: none; }
-  /* no keyboard to hint at; bigger targets for a thumb */
-  #actions .k { display: none; }
-  #actions button { padding: 13px 10px; font-size: 10px; letter-spacing: 0.12em; }
-  #actions { gap: 2px 6px; }
-  #hint-fine { display: none; }
-  #hint-coarse { display: inline; }
 }
+
 @media (prefers-reduced-motion: reduce) {
   #reticle .ring, #reticle .arc, #unwrap { transition: none; }
   #title, #ui { transition-duration: 0.01s; }
 }
+
+/* Touch, or a window too small for a mouse-style footer: one compact control
+   line along the bottom — the hint, then the controls — with thumb-sized
+   targets and no key badges. Tapping the scene asks for a glyph, so the Ask
+   button is redundant; Unwrap is keyboard-only by design; and Hide would
+   leave no way back without a keyboard. */
+@media (pointer: coarse), (max-width: 620px) {
+  #hint-fine { display: none; }
+  #hint-coarse { display: inline; }
+  #actions .k { display: none; }
+  #actions button { padding: 15px 10px; font-size: 10px; letter-spacing: 0.12em; }
+  #actions { gap: 2px 10px; flex-wrap: wrap; }
+  #act-glyph, #act-hide { display: none; }
+  #ui {
+    padding: 0 18px 16px;
+    flex-wrap: wrap; align-items: center;
+    gap: 2px 12px;
+    font-size: 9.5px; letter-spacing: 0.11em;
+  }
+}
+
 @media (max-width: 620px) {
   #title { padding: 18px 20px 0; font-size: 9px; }
   #title span:last-child { display: none; }
-  #hint-fine { display: none; }
-  #hint-coarse { display: inline; }
-  #ui {
-    padding: 0 18px 16px;
-    gap: 10px; flex-direction: column; align-items: flex-start;
-    font-size: 9px; letter-spacing: 0.09em;
-  }
-  #actions { flex-wrap: wrap; width: 100%; }
-  #actions button { padding: 13px 10px; }
-  /* Hiding the chrome is keyboard-reversible on a desktop; without a keyboard
-     nothing would bring it back, so the action is not offered here. */
-  #act-hide { display: none; }
 }

@@ -330,12 +330,15 @@ a dev tool, served by `npm run dev`, not a build entry.
 | `H` | hide the chrome |
 | `M` | sound on/off |
 
-Every action is also a button in the footer, with its key shown as a badge on
-pointer devices. On a touch screen there is no keyboard, so the buttons are
-the controls: the badges drop away, the targets grow to a thumb, and **Hide**
-is left out — with no keyboard there would be no way to bring the chrome back.
-The two hint lines are likewise swapped: "Move — they follow" is a mouse
-sentence and is replaced by "Tap anywhere".
+The footer buttons carry each action's key as a badge on pointer devices;
+**Unwrap** is deliberately keyboard-only (`U`). On a touch screen the badges
+drop away, the targets grow to a thumb, and the footer becomes one compact
+bottom line: the hint on the left, the remaining controls (**Clear**,
+**Sound**) on the right. **Ask** is left out because the scene itself is the
+button (tap anywhere), and **Hide** is left out because without a keyboard
+there would be no way to bring the chrome back. The two hint lines are
+likewise swapped: "Move — they follow" is a mouse sentence and is replaced by
+"Tap anywhere".
 
 Sound starts on the first interaction (browser policy allows nothing sooner),
 loops, and remembers the visitor's choice.
