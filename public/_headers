@@ -20,3 +20,7 @@
 # The HTML shell must always be revalidated so a new deploy is picked up.
 /index.html
   Cache-Control: public, max-age=0, must-revalidate
+
+# ...and so must the review tool, reachable as /compare.
+/tools/reference/compare.html
+  Cache-Control: public, max-age=0, must-revalidate

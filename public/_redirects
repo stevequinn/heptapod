@@ -1,3 +1,8 @@
+# The review tool, reachable as /compare. The file itself lives beside the
+# reference frames at /tools/reference/compare.html.
+/compare    /tools/reference/compare.html   200
+/compare/   /tools/reference/compare.html   200
+
 # Single-page app: serve the app shell for any unknown path rather than a 404.
 # Real files (hashed assets under /assets, icons, etc.) are matched first, so
 # this only catches routes the app itself should handle.

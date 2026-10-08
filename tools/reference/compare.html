@@ -104,12 +104,17 @@ const $ = (id) => document.getElementById(id);
 const PAPER = '#e8ebec';
 
 let NAMES = [];
+/* The frames are film assets and are not committed, so a deployed copy of
+   this page has the generator but no references. Everything below degrades
+   to the generated-only view when they are absent. */
+let refsAvailable = true;
 try {
-  const m = await fetch('logograms/manifest.json').then((r) => r.json());
+  const m = await fetch('/tools/reference/logograms/manifest.json').then((r) => r.json());
   NAMES = m.names.map((n) => n.replace(/\.jpe?g$/i, ''));
 } catch {
+  refsAvailable = false;
   document.getElementById('sub').innerHTML =
-    'No manifest. Run <code>npm run reference</code> to fetch the frames.';
+    'No reference frames here. Run <code>npm run reference</code> to fetch them.';
 }
 
 /* ---- state ------------------------------------------------------------- */
@@ -141,6 +146,7 @@ const S = {
   only: qs.get('only') || '',
   style: styleFromUrl(),
 };
+if (!refsAvailable) S.view = 'gen';
 
 /* Decoded frames are cached by name; fillRef paints on load. */
 const imgs = new Map();
@@ -217,7 +223,11 @@ function build() {
      time to look at an empty screen — and the one thing this page is for is
      looking at things. */
   let pending = 0;
-  for (const n of (showRefs ? names : names)) {
+  /* in the generated-only view there are no reference names to walk; count
+     seeds instead */
+  const boxes = showRefs ? names.length : S.count;
+  for (let bi = 0; bi < boxes; bi++) {
+    const n = names[bi];
     const box = document.createElement('div');
     box.className = 'pair';
 
@@ -263,7 +273,7 @@ function build() {
 
     grid.appendChild(box);
   }
-  if (pending === 0) setStatus(names.length);
+  if (pending === 0) setStatus(boxes);
 
   const url = new URL(location);
   for (const [k, v] of Object.entries({ view: S.view, cell: S.cell, count: S.count, seed: S.seed,
@@ -327,9 +337,9 @@ function fillRef(name, cellNode, placeholder, done) {
       cellNode.appendChild(m);
       done && done();
     };
-    im.src = 'logograms/' + name + '.jpg';
+    im.src = '/tools/reference/logograms/' + name + '.jpg';
   };
-  small.src = 'logograms/s-' + name + '.jpg';
+  small.src = '/tools/reference/logograms/s-' + name + '.jpg';
 }
 
 /* ---- controls ---------------------------------------------------------- */
@@ -345,15 +355,23 @@ $('threshold').checked = S.threshold;
 $('bare').checked = S.bare;
 $('only').value = S.only;
 
-$('sub').innerHTML =
-  'All ' + NAMES.length + ' reference frames, and the generator, in one place. '
-+ '<b>Interleaved</b> puts them alternately so the eye judges species rather than detail; '
-+ '<b>pairs</b> stacks them so it judges weight and shape; <b>references only</b> is the set as a '
-+ 'whole, which is the view that shows the structure — a thin circle that is always there, plus '
-+ 'discrete blots, plus spikes that leave the blots and nothing else. '
-+ '<b>Threshold</b> puts the generated ink through the same hard cut the reference frames have had. '
-+ 'The <b>style</b> row drives the generator live: calibrate a sheet that reads as the same '
-+ 'species, then write the values back into <code>STYLE</code> in src/config.js.';
+$('sub').innerHTML = refsAvailable
+  ? 'All ' + NAMES.length + ' reference frames, and the generator, in one place. '
+  + '<b>Interleaved</b> puts them alternately so the eye judges species rather than detail; '
+  + '<b>pairs</b> stacks them so it judges weight and shape; <b>references only</b> is the set as a '
+  + 'whole, which is the view that shows the structure — a thin circle that is always there, plus '
+  + 'discrete blots, plus spikes that leave the blots and nothing else. '
+  + '<b>Threshold</b> puts the generated ink through the same hard cut the reference frames have had. '
+  + 'The <b>style</b> row drives the generator live: calibrate a sheet that reads as the same '
+  + 'species, then write the values back into <code>STYLE</code> in src/config.js.'
+  : 'No reference frames in this copy — they are film assets, fetched locally with '
+  + '<code>npm run reference</code>. The generator is below, and the <b>style</b> row drives it live; '
+  + 'write a calibrated row back into <code>STYLE</code> in src/config.js.';
+
+if (!refsAvailable) {
+  for (const o of $('view').options) if (o.value !== 'gen') o.disabled = true;
+  $('view').value = 'gen';
+}
 
 for (const id of ['view', 'pick', 'cell', 'count', 'seed', 'threshold', 'bare', 'only']) {
   $(id).addEventListener('change', () => {

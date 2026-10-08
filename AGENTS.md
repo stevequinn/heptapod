@@ -18,9 +18,11 @@ only. No framework, no build step beyond Vite.
 | `npm run reference` | fetch the 38 reference frames into a gitignored directory |
 | `npm run probe:ca` | re-run the automaton rule-selection analysis |
 
-Dev tools: `tools/reference/compare.html` (style calibration),
-`tools/probe-ink.html` (measurement), `?proof=N` (bare contact sheet),
-`?warm=N` (deterministic fast-forward). See the README.
+Dev tools: `/compare` (style calibration — `tools/reference/compare.html`, a
+second build entry, rewritten to that URL in dev and preview and by
+`public/_redirects` on Pages), `tools/probe-ink.html` (measurement),
+`?proof=N` (bare contact sheet), `?warm=N` (deterministic fast-forward).
+See the README.
 
 ## Invariants
 

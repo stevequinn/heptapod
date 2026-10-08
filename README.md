@@ -67,8 +67,12 @@ wave travelling back toward the ignition points.
 ```bash
 npm run reference        # fetch the 38 reference frames (film assets, not committed)
 npm run dev
-# http://localhost:3000/tools/reference/compare.html
+# http://localhost:3000/compare
 ```
+
+The same tool is built and served at `/compare` on the deployed site; a copy
+without the frames shows the generator alone, with the refs-dependent views
+disabled.
 
 `refs` (all 38 frames at once) is the view to judge against; `interleave` mixes
 them with generated glyphs; `threshold` applies the same hard cut the reference
@@ -110,7 +114,7 @@ src/
                  render path
   ui/            chrome.js, input.js, sound.js
 tools/
-  reference/compare.html   the calibration surface
+  reference/compare.html   the calibration surface, served at /compare
   probe-ink.html           measurement against the reference ranges
   probe-ca.mjs             re-runs the rule-selection analysis
 ```
