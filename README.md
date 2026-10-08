@@ -10,6 +10,14 @@ twelve-section decomposition Christopher Wolfram used to analyse them in
 Everything here is original code; the film imagery and the logogram designs
 belong to Paramount / the film's production.
 
+## Main Screen
+
+![Main Screen](./public/main-screen.jpeg)
+
+## Heptapod Logogram Comparison Tool
+
+![Compare Screen](./public/compare-screen.jpeg)
+
 ## Running it
 
 ```bash
