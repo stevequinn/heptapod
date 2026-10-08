@@ -1,172 +1,223 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    The offshoots.
 
-   The filaments that leave a wet blot, and the spatter thrown with them.
+   The bristles, spines and tendrils that leave a dense cluster, and the
+   spatter thrown with them.
 
-   The rule that matters most here, and the one that was wrong for a long time:
+   The rule that matters, and that took a long time to get right: these leave
+   the accumulated ink, never the thin circle, and most of them continue a
+   stroke that is already on the glass. blot.js hands over the tip of every
+   pressure stroke as a candidate root, so a filament starts inside the mass
+   and emerges from it along the direction of the mark it grew out of. A
+   filament rooted in open air is the "hairy circle" failure; a filament
+   rooted on a stroke is a bristle.
 
-     spikes leave BLOTS. Never the thin circle.
+   Everything else is measured, and the older measurements still hold: short
+   (median reach ~0.09 R), cross-section comparable to the hairline, a wide
+   direction spread rather than a radial comb, and tips that taper to a
+   rounded point. What this version adds is *composition*: four differently
+   distributed types — a dense fringe of fine hairs, medium filaments, a few
+   near-straight spines, and a few long curling tendrils — each with its own
+   direction mixture, so the fringe reads as a hairy edge rather than as
+   grass.
 
-   That is true of all 38 reference frames without exception, and it is obvious
-   the moment the whole set is looked at in one place — which is why the review
-   page has a view for exactly that. The failure mode is subtle in code: emit
-   from "the blot's arc" and a blot whose profile has tapered to almost nothing
-   at its own edge still emits, so filaments sprout from places where the ink is
-   hairline thin and the picture reads as a hairy circle rather than as a
-   splashed one. Emission is therefore gated on the *local blot weight*, not on
-   being nominally inside a blot's arc.
-
-   The rest of it, measured:
-
-     length         0.09 R at the median and 0.24 at p90, measured with a
-                    distance transform so that a spike lying along a ray cannot
-                    inflate itself. They are SHORT. Earlier estimates of 0.34 to
-                    0.53 came from measuring rays, which counts a spike as part
-                    of whatever it touches.
-     cross-section  comparable to the ring itself, not to the blot they leave.
-                    Assuming they scale with the blot makes them several times
-                    too heavy, and it is a very natural assumption.
-     direction      near-isotropic with a slight outward lean — a splash, not a
-                    comb and not a starburst.
-     count          twenty to fifty per logogram, in clumps rather than evenly
-                    spaced.
-     profile        tapers to a *rounded* point. At low resolution the tips look
-                    clubbed; that reading is an artefact of downscaling, and it
-                    survives looking at the images — only measuring kills it.
-     spatter        detached dots clustered on the blots, about 1% of the ink by
-                    area.
+     filaments      build the geometry, once
+     specks         detached flecks, clustered on the deposits
+     drawFilaments  chains of round-capped segments, the taper
+     drawSpecks     the flecks themselves
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { OFFSHOOT, SPATTER } from '../config.js';
-import { TAU, fbm1, mulberry32, ri, rr } from '../lib/math.js';
+import { TAU, clamp, clamp01, fbm1, lerp, mulberry32, ri, rr } from '../lib/math.js';
 
-/** how many points along a filament; enough for the bow and the undulation to
- *  read, few enough that the round-capped segments stay cheap */
+/** how many points along a filament; enough for the bow and the undulation */
 const SEGMENTS = 14;
 
-/**
- * Sample a blot's half-width at an arbitrary angle away from its centre.
- * Returns 0 outside the blot's arc.
- */
-function blotWidthAt(blot, da) {
-  if (Math.abs(da) > blot.halfSpan) return 0;
-  const t = (da / blot.halfSpan + 1) * 0.5;
-  const k = Math.max(0, Math.min(blot.widths.length - 1,
-    Math.round(t * (blot.widths.length - 1))));
-  return blot.widths[k];
-}
+/** the four kinds of filament, wired to the config table */
+const TYPE = {
+  fringe: {
+    range: OFFSHOOT.fringe, len: OFFSHOOT.length.fringe,
+    wid: OFFSHOOT.width.fringe, mix: OFFSHOOT.mix.fringe,
+    bow: OFFSHOOT.bow.fringe, curl: OFFSHOOT.curl.fringe, und: 0.45,
+  },
+  medium: {
+    range: OFFSHOOT.medium, len: OFFSHOOT.length.medium,
+    wid: OFFSHOOT.width.medium, mix: OFFSHOOT.mix.medium,
+    bow: OFFSHOOT.bow.medium, curl: OFFSHOOT.curl.medium, und: 0.40,
+  },
+  spine: {
+    range: OFFSHOOT.spines, len: OFFSHOOT.length.spine,
+    wid: OFFSHOOT.width.spine, mix: OFFSHOOT.mix.spine,
+    bow: OFFSHOOT.bow.spine, curl: OFFSHOOT.curl.spine, und: 0.25,
+  },
+  tendril: {
+    range: OFFSHOOT.tendrils, len: OFFSHOOT.length.tendril,
+    wid: OFFSHOOT.width.tendril, mix: OFFSHOOT.mix.tendril,
+    bow: OFFSHOOT.bow.tendril, curl: OFFSHOOT.curl.tendril, und: 0.35,
+  },
+};
+
+/* triangular in [-1, 1], used where a Gaussian-ish spread is wanted */
+const tri = (rng) => rng() + rng() - 1;
+const wrapPi = (a) => {
+  let d = a % TAU;
+  if (d > Math.PI) d -= TAU;
+  if (d < -Math.PI) d += TAU;
+  return d;
+};
+
+/* ═══ filaments ═════════════════════════════════════════════════════════ */
 
 /**
- * Filaments leaving the blots.
+ * Build every filament on a glyph.
  *
- * Roots are placed on the nominal ring and the blot is expected to cover them —
- * both are the same black, so the root is invisible and the filament appears to
- * emerge from the blot. The drawn length is therefore the visible length plus
- * however much of the root the blot swallows, or every filament would come out
- * short by the width of the blot it is leaving.
- *
- * Emission is confined to blots *and* gated on the local blot weight, which are
- * not the same thing: see the header.
- *
- * Geometry is built here, once, and never in `draw()`. `draw()` is re-executed
- * whenever a mark is rebuilt at a new scale, so anything random in there would
- * make a logogram change shape when the window resizes.
- *
- * @param {Array<{angle,halfSpan,widths,peak,strength}>} blots
- * @param {function} rng
- * @param {number} ringHalf
- * @param {number} seed
- * @returns {Array<{pts: Array<[number,number]>, ws: number[], reach: number}>}
+ * @param {object} o
+ * @param {Array<{shape:object, anchors:Array}>} o.clusters  from blot.js
+ * @param {function} o.rng
+ * @param {number} o.ringHalf
+ * @param {number} o.seed
+ * @param {function(number):{x,y,nx,ny}} o.pathAt
+ * @param {object} o.style
+ * @returns {Array<{pts:Array, ws:Array, reach:number}>}
  */
-export function filaments({ blots, rng, ringHalf, seed }) {
+export function filaments({ clusters, rng, ringHalf, seed, style, pathAt }) {
   const out = [];
-  if (!blots.length) return out;
+  const dens = style.filamentDensity;
+  const variance = style.filamentLengthVariance;
 
-  /* Share the population out by blot weight, so a heavy blot throws more
-   * than a light one, then clamp the total. */
-  const total = blots.reduce((s, m) => s + m.strength, 0);
-  const want = Math.round(rr(rng, OFFSHOOT.count[0], OFFSHOOT.count[1]));
+  for (const { shape, anchors } of clusters) {
+    const sN = clamp01(shape.strength / 1.25);
+    const skew = OFFSHOOT.lengthSkew * (0.25 + 0.75 * variance);
+    const warp = fbm1(mulberry32((seed + Math.round(shape.angle * 1e6)) >>> 0), 2);
 
-  for (const blot of blots) {
-    const share = Math.max(0, want * (blot.strength / total));
-    const n = Math.max(blot.strength > 0.9 ? 2 : 0, Math.round(share));
+    /* pick a root. Half the time it is a stroke tip, so the bristle continues
+       a mark that is on the glass; the other half it is a fresh position
+       sampled from the envelope, so the fringe spreads along the whole
+       deposit rather than only where a stroke happened to end. */
+    const pickRoot = () => {
+      for (let attempt = 0; attempt < 12; attempt++) {
+        if (anchors.length && rng() < 0.55) {
+          const an = anchors[Math.floor(rng() * anchors.length)];
+          if (an.e > shape.peak * OFFSHOOT.minLoad) return an;
+          continue;
+        }
+        const t = rr(rng, -0.97, 0.97);
+        const e = shape.envAt(t);
+        if (e < shape.peak * OFFSHOOT.minLoad || rng() > e / shape.peak) continue;
+        const a = shape.angle + t * shape.halfSpan;
+        const q = tri(rng) * 0.6;
+        const P = pathAt ? pathAt(a) : { x: Math.cos(a), y: Math.sin(a), nx: Math.cos(a), ny: Math.sin(a) };
+        return {
+          x: P.x + P.nx * q * e, y: P.y + P.ny * q * e,
+          a, q, e, dir: Math.atan2(P.y, P.x) + Math.PI / 2,
+        };
+      }
+      return null;
+    };
 
-    const wob = fbm1(mulberry32((seed + Math.round(blot.angle * 1e6)) >>> 0), 2);
-    const ph = rng() * 90;
+    const emit = (spec) => {
+      const an = pickRoot();
+      if (!an) return;
+      const rx = an.x, ry = an.y;
+      const phi0 = Math.atan2(ry, rx);
+      /* push the root to the silhouette: bristles belong on the edge of the
+         ink, not over its middle, or the fringe reads as fur and vanishes
+         under the mass */
+      const qRaw = clamp(an.q ?? 0, -0.95, 0.95);
+      const qSign = qRaw !== 0 ? Math.sign(qRaw) : (rng() < 0.5 ? -1 : 1);
+      const q0 = qSign * rr(rng, 0.45, 1.00);
+      /* move the root out with the shifted q, so the root sits on the
+         silhouette the visible-length maths assumes it sits on */
+      const rad = Math.hypot(rx, ry) || 1;
+      const rTarget = 1 + q0 * (an.e ?? 0);
+      const sx = (rx / rad) * rTarget, sy = (ry / rad) * rTarget;
 
-    /* Clumps: a few origins along the blot, each with its own direction, and
-       the filaments grouped around them. This is what the references' fringes
-       actually look like — bunches fanning from near the same point, with bare
-       stretches between — and it is the difference between a splash and a
-       comb. */
-    const nClump = ri(rng, OFFSHOOT.clumps[0], OFFSHOOT.clumps[1]);
-    const clumps = [];
-    for (let c = 0; c < nClump; c++) {
-      clumps.push({
-        at: rr(rng, -0.88, 0.88),
-        dir: (rng() + rng() + rng() - 1.5) * OFFSHOOT.spread,
-      });
-    }
+      /* direction: the type's mixture, blended toward the direction of the
+         stroke the bristle grew from */
+      const mix = spec.mix;
+      const roll = rng();
+      let delta;
+      if (roll < mix[0]) delta = tri(rng) * 0.45;
+      else if (roll < mix[0] + mix[1]) delta = (rng() < 0.5 ? -1 : 1) * rr(rng, 0.95, 1.5);
+      else delta = Math.PI + tri(rng) * 0.5;
+      if (rng() < OFFSHOOT.inherit) {
+        delta = lerp(delta, wrapPi(an.dir - phi0), 0.65);
+      }
+      delta += tri(rng) * OFFSHOOT.clumpFan * 0.7;
 
-    for (let i = 0; i < n; i++) {
-      const cl = clumps[Math.floor(rng() * clumps.length)];
-      const at = Math.max(-1, Math.min(1, cl.at + (rng() + rng() - 1) * OFFSHOOT.clumpSpread));
-      const a0 = blot.angle + at * blot.halfSpan * rr(rng, OFFSHOOT.outlet[0], OFFSHOOT.outlet[1]);
-      const localW = blotWidthAt(blot, a0 - blot.angle);
-      /* The gate. A blot's profile falls to nothing at the ends of its own arc,
-         so "inside the arc" is not the same as "on thick ink" — and filaments
-         emitted from the thin ends are exactly the hairy-circle failure. */
-      if (localW < blot.peak * OFFSHOOT.minLoad) continue;
+      const straight = spec === TYPE.spine;
+      let visible = spec.len[0] + (spec.len[1] - spec.len[0]) * Math.pow(rng(), skew);
+      if (rng() < OFFSHOOT.outlier[0] * (0.5 + 0.7 * variance)) {
+        visible *= rr(rng, OFFSHOOT.outlier[1], OFFSHOOT.outlier[2]);
+      }
+      /* hairs that turn back across the interior are shorter: a long line
+         diving through the middle of the circle is the one placement that
+         always reads as a spike rather than as a bristle */
+      if (Math.abs(wrapPi(delta)) > 2.0) visible *= 0.68;
+      const maxOut = OFFSHOOT.maxLength * (straight ? 0.8 : 1);
 
-      /* Direction: the clump's own direction plus a fan, which reproduces the
-       * measured distribution while keeping a bunch coherent. */
-      const roll = cl.dir + (rng() + rng() - 1) * OFFSHOOT.clumpFan;
-      const phi = a0 + roll;
-      const cosD = Math.cos(roll);
+      /* what the mass swallows, added back so the visible length is `visible` */
+      const outward = Math.cos(delta);
+      const cover = outward >= 0
+        ? an.e * Math.max(0, 1 - q0) * outward
+        : an.e * Math.max(0, 1 + q0) * (-outward);
+      const len = Math.min(visible + cover, maxOut + cover);
 
-      const skew = Math.pow(rng(), OFFSHOOT.lengthSkew);
-      const visible = (OFFSHOOT.length[0]
-                    + (OFFSHOOT.length[1] - OFFSHOOT.length[0]) * skew)
-                    * (0.72 + 0.42 * (blot.strength / 1.3))
-                    // a few long outliers, as every reference has — capped, so
-                    // that the longest base filaments cannot overshoot
-                    * (rng() < 0.08 ? rr(rng, 1.5, 2.1) : 1);
-      const capped = Math.min(visible, OFFSHOOT.maxLength);
-      // add back what the blot will swallow, so `visible` is what shows
-      const cover = localW * 0.5 * Math.abs(cosD);
-      const len = capped + cover;
+      /* a filament that never clears the mass is invisible, and one so short
+         it cannot be seen as a mark is not a filament the probe should count:
+         drop anything under about two hundredths of a radius */
+      if (len - cover < 0.018) return;
 
-      const w0 = ringHalf * rr(rng, OFFSHOOT.width[0], OFFSHOOT.width[1])
-               * (0.75 + 0.5 * blot.strength);
-      const bow = rr(rng, OFFSHOOT.bow[0], OFFSHOOT.bow[1]) * (rng() < 0.5 ? -1 : 1);
+      const w0 = ringHalf
+        * rr(rng, spec.wid[0], spec.wid[1])
+        * (0.75 + 0.5 * shape.strength);
+      const bow = rr(rng, spec.bow[0], spec.bow[1]) * (rng() < 0.5 ? -1 : 1);
+      const curl = rr(rng, spec.curl[0], spec.curl[1]) * (rng() < 0.5 ? -1 : 1);
+      const ph = rng() * 90;
 
-      const dx = Math.cos(phi), dy = Math.sin(phi);
+      const dx = Math.cos(phi0 + delta), dy = Math.sin(phi0 + delta);
       const px = -dy, py = dx;
       const pts = new Array(SEGMENTS);
       const ws = new Array(SEGMENTS);
-      const r0 = Math.cos(a0), r1 = Math.sin(a0);
-
       for (let s = 0; s < SEGMENTS; s++) {
         const t = s / (SEGMENTS - 1);
-        /* A slight arc, and a very slight kink so it is not obviously a
-           generated curve. Both are small on purpose: these are stiff liquid
-           jets, and a filament long enough to read as one is also long enough
-           that any appreciable bow closes it into a loop, which reads as
-           spaghetti and is the single most conspicuous way to get this wrong. */
-        const lat = (Math.sin(Math.PI * t) * bow + (wob(t * 1.7 + ph) - 0.5) * 0.12) * len;
-        pts[s] = [r0 + dx * len * t + px * lat, r1 + dy * len * t + py * lat];
-
-        /* The measured cross-section: a slow taper to a small cap, not a cone.
-         * `tipCap` is what the round cap on the last segment turns into the
-         * rounded end. */
+        /* the measured cross-section: slow taper to a small cap, with visible
+           nodes and swells along the length */
         const taper = OFFSHOOT.tipCap + (1 - OFFSHOOT.tipCap)
                     * Math.pow(1 - t, OFFSHOOT.taper);
-        // visible nodes and swells along the length; straight cones read as grass
-        const und = 1 + OFFSHOOT.undulate * (wob(t * OFFSHOOT.undPeriods + ph * 0.5) - 0.5) * 2;
+        const und = 1 + spec.und * OFFSHOOT.undulate
+                  * (warp(t * OFFSHOOT.undPeriods + ph * 0.5) - 0.5) * 2;
         ws[s] = Math.max(1e-4, w0 * taper * und);
+
+        /* bow, curl and a little high-frequency wander; a strong curl is a
+           tendril hooking back toward the mass */
+        const lat = (bow * Math.sin(Math.PI * t)
+                   + curl * t * t
+                   + 0.10 * (warp(t * 2.4 + ph) - 0.5)) * len;
+        pts[s] = [sx + dx * len * t + px * lat, sy + dy * len * t + py * lat];
       }
 
-      out.push({ pts, ws, reach: len * Math.max(0, cosD) });
+      out.push({ pts, ws, reach: len * Math.max(0, outward) });
+    };
+
+    /* clumped fringe: several original points, each with its own direction,
+       and the hairs bunched around them */
+    const nClump = ri(rng, OFFSHOOT.clumps[0], OFFSHOOT.clumps[1]);
+    for (let c = 0; c < nClump; c++) {
+      const nF = Math.round(
+        (TYPE.fringe.range[0] + (TYPE.fringe.range[1] - TYPE.fringe.range[0]) * sN)
+        * dens / nClump * rr(rng, 0.6, 1.5),
+      );
+      for (let i = 0; i < nF; i++) emit(TYPE.fringe);
+    }
+
+    for (const key of ['medium', 'spine', 'tendril']) {
+      const spec = TYPE[key];
+      const n = Math.round(
+        (spec.range[0] + (spec.range[1] - spec.range[0]) * sN)
+        * dens * rr(rng, 0.7, 1.3),
+      );
+      for (let i = 0; i < n; i++) emit(spec);
     }
   }
   return out;
@@ -176,13 +227,10 @@ export function filaments({ blots, rng, ringHalf, seed }) {
  * Draw filaments as chains of round-capped segments.
  *
  * Per-segment lineWidth is the only way to get a tapering tube out of the 2D
- * canvas, and the round cap on the final segment is exactly the rounded end the
- * measurement calls for — a polygon outline would have to be told about it
- * separately, and would get it wrong.
- *
- * Segments are short and overlap, so the caps fuse into a smooth tube. Alpha is
- * 1 throughout: the reference filaments are solid black, and a translucent one
- * would double-darken wherever its own caps overlapped.
+ * canvas, and the round cap on the final segment is the rounded tip the
+ * measurements call for. Alpha stays 1 — a translucent filament doubles
+ * darker wherever its own caps overlap, and a thin black line already reads
+ * as light because it covers less paper.
  */
 export function drawFilaments(ctx, list) {
   ctx.lineCap = 'round';
@@ -199,44 +247,61 @@ export function drawFilaments(ctx, list) {
   }
 }
 
+/* ═══ spatter ═══════════════════════════════════════════════════════════ */
+
 /**
- * Spatter: detached dots thrown where the ink flicked.
+ * Detached flecks thrown where the ink flicked.
  *
- * Clustered at the blot and thinning outward rather than spread evenly over the
- * frame — the references have real speckle, but all of it near the blobs. A
- * third are stretched into teardrops, which is what a dot thrown through air
- * looks like.
+ * Clustered on and near the deposits and thinning outward — never spread
+ * evenly over the frame. A fraction are stretched teardrops, which is what a
+ * dot thrown through air looks like; the rest are crumbs of ink.
  *
- * @returns {Array<{x,y,r,ry,rot}>}
+ * @returns {Array<{x,y,r,ry,rot,alpha}>}
  */
-export function specks({ blots, rng }) {
+export function specks({ clusters, rng, style }) {
   const out = [];
-  for (const blot of blots) {
-    const n = ri(rng, SPATTER.perMass[0], SPATTER.perMass[1]);
+  const splat = style.microSplatter;
+  if (splat <= 0) return out;
+
+  for (const { shape } of clusters) {
+    const n = Math.round(ri(rng, SPATTER.perMass[0], SPATTER.perMass[1]) * splat);
     for (let i = 0; i < n; i++) {
-      /* An angular position on or just off the blot, and a radial distance that
-       * is mostly small — a power curve keeps the cloud tight. */
-      const a = blot.angle + rr(rng, -1.0, 1.0) * blot.halfSpan * 1.35;
-      const d = 1 + Math.pow(rng(), 1.7) * SPATTER.reach[1] * (rng() < 0.5 ? 1 : -1);
-      const r = rr(rng, SPATTER.size[0], SPATTER.size[1]) * (0.85 + 0.35 * blot.strength);
+      const a = shape.angle + rr(rng, -1.1, 1.1) * shape.halfSpan * 1.4;
+      const d = 1 + Math.pow(rng(), 1.8) * SPATTER.reach[1] * (rng() < 0.5 ? 1 : -1);
+      const r = rr(rng, SPATTER.size[0], SPATTER.size[1]) * (0.85 + 0.35 * shape.strength);
       const stretched = rng() < SPATTER.stretched;
       out.push({
         x: Math.cos(a) * d,
         y: Math.sin(a) * d,
         r,
         ry: stretched ? r * rr(rng, 1.6, 3.4) : r,
-        rot: a + Math.PI / 2,        // stretched along the throw, not across it
+        rot: a + Math.PI / 2,
+        alpha: clamp01(rr(rng, 0.35, 1)),
       });
     }
+  }
+
+  const stray = Math.round(ri(rng, SPATTER.stray[0], SPATTER.stray[1]) * splat);
+  for (let i = 0; i < stray; i++) {
+    const a = rr(rng, 0, TAU);
+    const d = rr(rng, 0.6, 1.32);
+    out.push({
+      x: Math.cos(a) * d,
+      y: Math.sin(a) * d,
+      r: rr(rng, SPATTER.size[0], SPATTER.size[1]) * 0.8,
+      ry: 0,
+      rot: 0,
+      alpha: clamp01(rr(rng, 0.2, 0.65)),
+    });
   }
   return out;
 }
 
 export function drawSpecks(ctx, dots) {
-  ctx.fillStyle = '#000';
   for (const d of dots) {
     ctx.beginPath();
-    ctx.ellipse(d.x, d.y, d.r, d.ry, d.rot, 0, TAU);
+    ctx.fillStyle = `rgba(0,0,0,${d.alpha.toFixed(4)})`;
+    ctx.ellipse(d.x, d.y, d.r, d.ry || d.r, d.rot, 0, TAU);
     ctx.fill();
   }
 }

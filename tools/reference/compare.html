@@ -25,12 +25,23 @@
   }
   .bar input[type=text] { width:11em; }
   .bar input[type=number] { width:6em; }
-  .bar input[type=range] { width:100px; }
+  .bar input[type=range] { width:84px; }
   .bar button {
     font:inherit; font-size:10px; letter-spacing:.12em; text-transform:uppercase;
     padding:4px 10px; border:1px solid var(--ink); background:var(--ink); color:var(--paper); cursor:pointer;
   }
   .bar button.ghost { background:none; color:var(--ink); }
+  .bar.style {
+    margin-top:-20px; align-items:flex-start; row-gap:6px;
+    font-size:9.5px; letter-spacing:.08em;
+  }
+  .bar.style > .barlabel { padding-top:4px; text-transform:uppercase; letter-spacing:.2em; }
+  .bar.style label { flex-direction:column; align-items:flex-start; gap:1px; }
+  .bar.style output {
+    font-size:9px; color:var(--ink); letter-spacing:.04em;
+  }
+  .bar.style input[type=range] { width:74px; }
+  .bar.style button { margin-top:3px; }
   .grid { display:grid; gap:14px; justify-content:start; }
   .pair { width:var(--cell); }
   .cell {
@@ -78,10 +89,15 @@
   <span id="status"></span>
 </div>
 
+<div class="bar style" id="stylebar">
+  <span class="barlabel">style</span>
+</div>
+
 <div class="grid" id="grid"></div>
 
 <script type="module">
 import { makeRingGlyph } from '/src/ink/glyph.js';
+import { STYLE, STYLE_RANGE } from '/src/config.js';
 
 const qs = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
@@ -97,6 +113,23 @@ try {
 }
 
 /* ---- state ------------------------------------------------------------- */
+/* Every style knob is a generator input. They live in the URL too, so a
+   calibrated sheet is reproducible and can be handed back to the code as a
+   new default. */
+const STYLE_KEYS = [
+  'clusterCount', 'clusterDensity', 'filamentDensity',
+  'filamentLengthVariance', 'ringWobble', 'inkRoughness', 'microSplatter',
+];
+const styleFromUrl = () => {
+  const o = { ...STYLE };
+  for (const k of STYLE_KEYS) {
+    if (!qs.has(k)) continue;
+    const v = Number(qs.get(k));
+    if (Number.isFinite(v)) o[k] = v;
+  }
+  return o;
+};
+
 const S = {
   view: qs.get('view') || 'interleave',
   pick: qs.get('pick') || 'all',
@@ -106,23 +139,11 @@ const S = {
   threshold: qs.get('threshold') === '1',
   bare: qs.get('bare') !== '0',
   only: qs.get('only') || '',
+  style: styleFromUrl(),
 };
 
-/* Preload the frames the page will actually show. `decode()` resolves once the
-   pixels exist; a HEAD or an onload does not, and an early screenshot of an
-   empty box is the one way this tool can lie. */
+/* Decoded frames are cached by name; fillRef paints on load. */
 const imgs = new Map();
-async function preload(list) {
-  await Promise.all(list.map(async (n) => {
-    if (imgs.has(n)) return;
-    try {
-      const im = new Image();
-      im.src = 'logograms/' + n + '.jpg';
-      await im.decode();
-      imgs.set(n, im);
-    } catch { /* absent */ }
-  }));
-}
 
 function thresholdCanvas(src) {
   const c = document.createElement('canvas');
@@ -144,8 +165,10 @@ function thresholdCanvas(src) {
    hard-thresholded cutouts. Comparing a grey edge against a hard edge makes the
    generated ink read as softer than it is, so the threshold view exists to put
    both through the same treatment. */
+const styleKey = () => STYLE_KEYS.map((k) => k.slice(0, 3) + S.style[k].toFixed(2)).join(',');
+
 function renderGlyph(seed, cell, cache) {
-  const key = seed + '/' + cell + '/' + S.bare;
+  const key = seed + '/' + cell + '/' + S.bare + '/' + styleKey();
   if (cache.has(key)) return cache.get(key);
   const cv = document.createElement('canvas');
   const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -154,7 +177,7 @@ function renderGlyph(seed, cell, cache) {
   ctx.scale(dpr, dpr);
   ctx.fillStyle = PAPER;
   ctx.fillRect(0, 0, cell, cell);
-  const g = makeRingGlyph(seed);
+  const g = makeRingGlyph(seed, S.style);
   ctx.save();
   ctx.translate(cell / 2, cell / 2);
   ctx.scale(cell * 0.40, cell * 0.40);
@@ -247,6 +270,10 @@ function build() {
     pick: S.pick === 'all' ? null : S.pick })) {
     if (v === null) url.searchParams.delete(k); else url.searchParams.set(k, v);
   }
+  for (const k of STYLE_KEYS) {
+    if (Math.abs(S.style[k] - STYLE[k]) < 1e-9) url.searchParams.delete(k);
+    else url.searchParams.set(k, S.style[k].toFixed(2));
+  }
   history.replaceState(null, '', url);
 }
 
@@ -280,13 +307,16 @@ function fillRef(name, cellNode, placeholder, done) {
   const small = new Image();
   small.onload = () => {
     imgs.set(name, small);
-    (small.decode ? small.decode() : Promise.resolve()).then(() => paint(small)).catch(() => paint(small));
+    /* paint on load, not on decode(): decode() can stay pending forever for a
+       detached image in some browsers, and a review page that never shows its
+       references is worse than one that shows them a frame late */
+    paint(small);
   };
   small.onerror = () => {
     const im = new Image();
     im.onload = () => {
       imgs.set(name, im);
-      (im.decode ? im.decode() : Promise.resolve()).then(() => paint(im)).catch(() => paint(im));
+      paint(im);
     };
     im.onerror = () => {
       const m = document.createElement('div');
@@ -320,7 +350,9 @@ $('sub').innerHTML =
 + '<b>pairs</b> stacks them so it judges weight and shape; <b>references only</b> is the set as a '
 + 'whole, which is the view that shows the structure — a thin circle that is always there, plus '
 + 'discrete blots, plus spikes that leave the blots and nothing else. '
-+ '<b>Threshold</b> puts the generated ink through the same hard cut the reference frames have had.';
++ '<b>Threshold</b> puts the generated ink through the same hard cut the reference frames have had. '
++ 'The <b>style</b> row drives the generator live: calibrate a sheet that reads as the same '
++ 'species, then write the values back into <code>STYLE</code> in src/config.js.';
 
 for (const id of ['view', 'pick', 'cell', 'count', 'seed', 'threshold', 'bare', 'only']) {
   $(id).addEventListener('change', () => {
@@ -336,6 +368,51 @@ for (const id of ['view', 'pick', 'cell', 'count', 'seed', 'threshold', 'bare', 
     build();
   });
 }
+
+/* ---- style calibration ------------------------------------------------- */
+/* One slider per generator input, live. This is the point of the page: find
+   a row that reads as the same species as the references, then write the
+   values back into STYLE in config.js. */
+const stylebar = $('stylebar');
+for (const k of STYLE_KEYS) {
+  const [lo, hi] = STYLE_RANGE[k];
+  const label = document.createElement('label');
+  label.innerHTML = `<span>${k}</span>`
+    + `<input type="range" id="st-${k}" min="${lo}" max="${hi}" step="0.05" value="${S.style[k]}" />`
+    + `<output>${S.style[k].toFixed(2)}</output>`;
+  stylebar.appendChild(label);
+}
+const resetBtn = document.createElement('button');
+resetBtn.className = 'ghost';
+resetBtn.textContent = 'reset style';
+stylebar.appendChild(resetBtn);
+
+let styleTimer = 0;
+const scheduleBuild = () => {
+  if (styleTimer) return;
+  /* a timer rather than rAF: a hidden tab still gets timers, and calibration
+     should not silently stop updating because the window lost focus */
+  styleTimer = setTimeout(() => { styleTimer = 0; cache.clear(); build(); }, 120);
+};
+for (const k of STYLE_KEYS) {
+  const el = $('st-' + k);
+  const out = el.parentElement.querySelector('output');
+  el.addEventListener('input', () => {
+    S.style[k] = parseFloat(el.value);
+    out.textContent = S.style[k].toFixed(2);
+    scheduleBuild();
+  });
+}
+resetBtn.addEventListener('click', () => {
+  for (const k of STYLE_KEYS) {
+    S.style[k] = STYLE[k];
+    const el = $('st-' + k);
+    el.value = STYLE[k];
+    el.parentElement.querySelector('output').textContent = STYLE[k].toFixed(2);
+  }
+  cache.clear();
+  build();
+});
 $('reroll').addEventListener('click', () => {
   S.seed = (Math.imul(S.seed, 1664525) + 1013904223) >>> 0;
   $('seed').value = S.seed;

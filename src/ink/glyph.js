@@ -6,27 +6,32 @@
    `ops` is drawn progressively, so the ink appears to be laid down by a limb
    rather than appearing whole.
 
-   The structure is Wolfram's, and it is the one part of his notebooks that
-   survives contact with the reference figures: sectionBreaking-01.nb divides a
-   logogram into twelve angular wedges (sectionCount = 12), and this file
-   generates from that. Where the blots sit, how heavy the circle runs and where
-   it lifts off the glass are all described *per sector*, so each glyph's
-   identity is a profile around the circle. Hand-placing a few blobs, as an
-   earlier version did, gives a similar-looking result with far less variety.
+   The structure is Wolfram's: sectionBreaking-01.nb divides a logogram into
+   twelve angular wedges (sectionCount = 12), and this file generates from
+   that. Where the dense deposits sit, how heavy the circle runs and where it
+   lifts off the glass are all described around the circle, so each glyph's
+   identity is a profile rather than a handful of hand-placed blobs.
 
-   What does NOT come from his notebooks is the ink itself. The automaton is
-   gone from this path entirely; blot.js explains why at length.
+   The composition is four layers, and the order is deliberate:
 
-   Order matters below. The widths have to be known before the band is built,
-   because the band *is* the mark, and the blot profile is its width.
+     1. the ring — one band, varying in weight, occasionally broken
+     2. the clusters — hundreds of accumulated strokes per deposit, never a
+        filled shape; see blot.js for why that distinction is the whole game
+     3. the bristles — generated from the strokes they grow out of
+     4. scratches, dry ticks and flecks — the driest marks on the glass
+
+   `makeRingGlyph(seed, style)` accepts the style overrides from config.js so
+   the review page can calibrate the look without touching code.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { GLYPH, BLOT } from '../config.js';
-import { TAU, fbm1, angDiff, clamp, lerp, smoothstep, mulberry32, rr, ri } from '../lib/math.js';
-import { blotProfile } from './blot.js';
+import { GLYPH, resolveStyle } from '../config.js';
+import { TAU, angDiff, clamp, clamp01, fbm1, lerp, mulberry32, rr } from '../lib/math.js';
+import {
+  clusterShape, clusterMarks, clusterWidthAt, drawStrokes, drawFlakes,
+} from './blot.js';
 import { filaments, specks, drawFilaments, drawSpecks } from './offshoots.js';
 import {
-  ringProfile, ringBand, drawBandChunk, striations, dryTexture, drawDryTexture,
+  ringProfile, ringBand, drawBandChunk, striations, ringTrails, drawTrails,
 } from './stroke.js';
 import { plumeTile } from './smoke.js';
 
@@ -34,27 +39,28 @@ import { plumeTile } from './smoke.js';
  * Build one ring logogram.
  *
  * @param {number} seed   any integer; the glyph is fully determined by it
- * @returns {{ops: Array, total: number, sectors: Array, seed: number}}
+ * @param {object} [style]  overrides for STYLE (clusterDensity, ringWobble…)
+ * @returns {{ops:Array, total:number, sectors:Array, seed:number, blots:Array,
+ *            filaments:Array, specks:Array, peak:number, widths:Float32Array}}
  */
-export function makeRingGlyph(seed) {
+export function makeRingGlyph(seed, style = {}) {
+  const S = resolveStyle(style);
   const rng = mulberry32(seed >>> 0);
-  const nWob = [fbm1(rng, 4), fbm1(rng, 3), fbm1(rng, 3)];
-  const nW = fbm1(rng, 4);
-  const p0 = rr(rng, 0, 90), p1 = rr(rng, 0, 90), p2 = rr(rng, 0, 90), p3 = rr(rng, 0, 90);
 
   const SECTORS = GLYPH.sectors;
   const sectorAngle = TAU / SECTORS;
 
-  /* ---- the twelve-sector ink profile --------------------------------- */
-  /* One value per sector: how heavily inked this wedge of the circle is. Low
-     frequency, so neighbouring sectors group into arcs — a real logogram has
-     runs of calm and runs of heaviness, not twelve unrelated marks.
+  /* ---- noise tables ---------------------------------------------------- */
+  const nWob = [fbm1(rng, 4), fbm1(rng, 3), fbm1(rng, 3)];
+  const nW = fbm1(rng, 4);
+  const p0 = rr(rng, 0, 90), p1 = rr(rng, 0, 90), p2 = rr(rng, 0, 90), p3 = rr(rng, 0, 90);
 
-     The contrast curve matters more than it looks. Summing three noises gives a
-     range of roughly 0.35 to 0.65, and feeding that straight into the rest of
-     the file produces a profile where every sector is within 15% of every
-     other — the twelve-sector structure is then doing nothing at all. The
-     smoothstep expands the useful band back out to the full 0..1. */
+  /* ---- the twelve-sector ink profile ----------------------------------- */
+  /* One value per sector: how heavily inked this wedge of the circle is. Low
+     frequency, so neighbouring sectors group into runs of calm and runs of
+     heaviness. The smoothstep expands the useful band of the summed noise
+     back out to 0..1, or every sector ends up within 15% of every other and
+     the profile does nothing. */
   const profile = [];
   for (let s = 0; s < SECTORS; s++) {
     const u = s / SECTORS;
@@ -62,179 +68,202 @@ export function makeRingGlyph(seed) {
       0.52 * nWob[1](u * 2.0 + p0) +
       0.30 * nWob[2](u * 3.0 + p1) +
       0.18 * nWob[0](u * 1.0 + p2);
-    profile.push(smoothstep(0.40, 0.62, v));
+    profile.push(clamp01((v - 0.40) / 0.22));
   }
 
-  /** interpolated profile at an arbitrary angle */
   const profileAt = (a) => {
-    const u = (((a % TAU) + TAU) % TAU) / TAU * SECTORS;
+    const u = ((((a % TAU) + TAU) % TAU) / TAU) * SECTORS;
     const i = Math.floor(u), f = u - i;
     const a0 = profile[((i % SECTORS) + SECTORS) % SECTORS];
     const a1 = profile[(i + 1) % SECTORS];
     return lerp(a0, a1, f * f * (3 - 2 * f));
   };
 
-  /* ---- where the blots sit -------------------------------------------- */
-  /* At the profile's local maxima, at least `minApart` sectors apart. Taking
-     the global top-N instead would put two blots two sectors apart whenever the
-     noise has one broad hump, and two neighbouring blots just read as one very
-     thick patch. */
-  const wanted = ri(rng, GLYPH.blots[0], GLYPH.blots[1]);
-  const minApart = 3;
-  const peaks = [];
-  for (let s = 0; s < SECTORS; s++) {
-    const prev = profile[(s - 1 + SECTORS) % SECTORS];
-    const next = profile[(s + 1) % SECTORS];
-    if (profile[s] >= prev && profile[s] >= next) peaks.push({ s, v: profile[s] });
-  }
-  peaks.sort((x, y) => y.v - x.v);
-
-  const chosen = [];
-  for (const p of peaks) {
-    if (chosen.length >= wanted) break;
-    const far = chosen.every((c) => {
-      const d = Math.min(Math.abs(c - p.s), SECTORS - Math.abs(c - p.s));
-      return d >= minApart;
-    });
-    if (far) chosen.push(p.s);
-  }
-  // fall back to the heaviest unused sectors if the profile has too few peaks:
-  // walk on from the strongest and take what is free
-  const from = peaks.length ? peaks[0].s : 0;
-  for (let k = 0; k < SECTORS && chosen.length < wanted; k++) {
-    const sec = (from + k) % SECTORS;
-    if (!chosen.includes(sec)) chosen.push(sec);
-  }
-
   const ringHalf = rr(rng, GLYPH.ring[0], GLYPH.ring[1]);
+  const startA = rr(rng, 0, TAU);
 
-  /* Blot placement, then the spans resolved. Done in two steps because a span
-     has to be limited by how many blots there are: two neighbouring blots
-     spanning half the circle each just read as one very thick patch. */
-  const placed = chosen.map((s) => ({
-    angle: (s + 0.5) * sectorAngle + rr(rng, -0.16, 0.16),
-    strength: clamp(0.34 + profile[s] * 1.05, 0.20, 1.35),
-    rawSpan: rr(rng, BLOT.span[0], BLOT.span[1]) * (0.85 + 0.30 * profile[s]),
-  }));
-
-  /* ---- the blots ------------------------------------------------------- */
-  const blotData = placed.map((m) => {
-    const halfSpan = Math.min(m.rawSpan, TAU / (placed.length * 2) - 0.06);
-    const { widths, peak } = blotProfile({
-      halfSpan, ringHalf, strength: m.strength, rng,
-    });
-    return { angle: m.angle, halfSpan, widths, peak, strength: m.strength };
-  });
-
-  /* Heaviest leads. Almost every reference has one dominant blot and a quiet
-     circle elsewhere; giving all the blots comparable weight produces a ring
-     that is uniformly lumpy, which reads as a wobbling circle rather than as a
-     written mark. */
-  blotData.sort((x, y) => y.strength - x.strength);
-
-  /* ---- gaps ----------------------------------------------------------- */
-  /* Where the profile falls near zero the stroke lifts off the glass. This
-     thins the swell rather than removing the stroke — the references are closed
-     rings whose weight fades to nothing in places, not broken circles. */
-  const gaps = [];
-  for (let s = 0; s < SECTORS; s++) {
-    if (profile[s] < 0.22 && rng() < 0.34) {
-      gaps.push({ a: (s + 0.5) * sectorAngle + rr(rng, -0.10, 0.10), width: rr(rng, 0.09, 0.24) });
-    }
-  }
-  const flowAt = (a) => {
-    let flow = 1;
-    for (const gap of gaps) {
-      const d = Math.abs(angDiff(a, gap.a));
-      flow *= smoothstep(gap.width * 0.65, gap.width * 1.35, d);
-    }
-    return flow;
-  };
-
-  const startA = blotData[0].angle;
-
-  /* ---- the ring path -------------------------------------------------- */
-  /* Compass-guided, so remarkably round. Amplitudes are GLYPH.wobble and are
-     much smaller than a hand-drawn circle would want. */
+  /* ---- the ring path --------------------------------------------------- */
+  /* Compass-guided, so still clearly a circle: three octaves of radial
+     wobble plus a little ellipticity, scaled by STYLE.ringWobble. The old
+     version was so round it read as vector; this is a hand-drawn circle, not
+     a scribble. */
   const N = GLYPH.pathSegments;
   const [wLo, wMid, wHi] = GLYPH.wobble;
-  const ecc = rr(rng, -0.045, 0.045);
+  const wb = S.ringWobble;
+  const ecc = rr(rng, GLYPH.eccentricity[0], GLYPH.eccentricity[1]) * (rng() < 0.5 ? -1 : 1);
   const path = [];
   for (let i = 0; i <= N; i++) {
     const u = i / N;
     const a = startA + u * TAU;
-    let r = 1;
-    r += wLo * (nWob[0]((a / TAU) * 3 + p0) - 0.5) * 2;
-    r += wMid * (nWob[1]((a / TAU) * 7 + p1) - 0.5) * 2;
-    r += wHi * (nWob[2]((a / TAU) * 17 + p2) - 0.5) * 2;
+    const r = 1
+      + wb * wLo * (nWob[0]((a / TAU) * 3 + p0) - 0.5) * 2
+      + wb * wMid * (nWob[1]((a / TAU) * 7 + p1) - 0.5) * 2
+      + wb * wHi * (nWob[2]((a / TAU) * 17 + p2) - 0.5) * 2;
     const cx = Math.cos(a) * r, cy = Math.sin(a) * r;
     path.push({
       x: cx * (1 + ecc), y: cy * (1 - ecc),
-      // the outward normal, which is what the band's edges follow
       nx: Math.cos(a) * (1 + ecc), ny: Math.sin(a) * (1 - ecc),
       a, r, u,
     });
   }
-  path[N] = { ...path[0], u: 1 };        // close exactly, so the band has no seam
+  path[N] = { ...path[0], u: 1 };
 
-  const { widths, peak } = ringProfile({
-    blots: blotData, sectorProfile: profile, ringHalf, samples: N + 1, flowAt,
+  /** the path, sampled at an arbitrary absolute angle with a unit normal */
+  const pathAt = (a) => {
+    const u = ((((a - startA) % TAU) + TAU) % TAU) / TAU;
+    const f = u * N;
+    const i = Math.min(N - 1, Math.floor(f));
+    const fr = f - i;
+    const p = path[i], q = path[i + 1];
+    const nx0 = lerp(p.nx, q.nx, fr), ny0 = lerp(p.ny, q.ny, fr);
+    const nl = Math.hypot(nx0, ny0) || 1;
+    return {
+      x: lerp(p.x, q.x, fr), y: lerp(p.y, q.y, fr),
+      nx: nx0 / nl, ny: ny0 / nl,
+    };
+  };
+
+  /* ---- where the clusters sit ------------------------------------------ */
+  const wanted = clamp(Math.round(S.clusterCount + (rng() * 2 - 1) * 0.9), 1, 5);
+  const order = [];
+  for (let s = 0; s < SECTORS; s++) order.push({ s, v: profile[s] * rr(rng, 0.7, 1.3) });
+  order.sort((x, y) => y.v - x.v);
+
+  const chosen = [];
+  for (const o of order) {
+    if (chosen.length >= wanted) break;
+    const far = chosen.every((c) => {
+      const d = Math.min(Math.abs(c - o.s), SECTORS - Math.abs(c - o.s));
+      return d >= 2;
+    });
+    if (far) chosen.push(o.s);
+  }
+  for (let k = 0; k < SECTORS && chosen.length < wanted; k++) {
+    if (!chosen.includes(k)) chosen.push(k);
+  }
+
+  /* Strength from the profile, then a deliberate imbalance: one deposit
+     dominates. Comparable weights everywhere read as a wobbling circle
+     rather than as a written mark. A per-glyph inkiness multiplier widens
+     the spread from whisper-light to heavily worked, because the corpus
+     ranges from 6% ink to 17% and a generator that only makes the median is
+     not making the family. */
+  const inkiness = rr(rng, 0.78, 1.35);
+  const raw = chosen.map((s) => ({ s, v: (0.40 + 1.0 * profile[s]) * rr(rng, 0.75, 1.3) * inkiness }));
+  raw.sort((x, y) => y.v - x.v);
+  raw.forEach((r, i) => { r.v *= i === 0 ? 1.35 : i === 1 ? 0.90 : 0.72; });
+
+  const clusters = raw.map(({ s, v }, idx) => {
+    const compact = rng() < 0.40;
+    const halfSpan = (compact ? rr(rng, 0.10, 0.26) : rr(rng, 0.22, 0.60))
+                   * (0.9 + 0.25 * profile[s]);
+    const strength = clamp(v * (compact ? 1.10 : 0.95), 0.3, 1.5);
+    const angle = (s + 0.5) * sectorAngle + rr(rng, -0.22, 0.22);
+    return clusterShape({ angle, halfSpan, ringHalf, strength, rng, style: S });
   });
-  const band = ringBand({ path, widths, seed, peak });
-  const ink = striations(seed);
+  clusters.sort((x, y) => y.strength - x.strength);
 
+  const peak = Math.max(...clusters.map((c) => c.maxWidth), ringHalf * 3);
+
+  /* ---- the ring's width, breaks and faints ----------------------------- */
+  const { widths: ringWidths, ink } = ringProfile({
+    profileAt, ringHalf, samples: N + 1, a0: startA, seed, rng,
+    avoid: clusters.map((c) => ({ a: c.angle, h: c.halfSpan })),
+    bumps: clusters.map((c) => ({
+      a: c.angle, h: c.halfSpan,
+      amp: 0.45 + 0.60 * clamp01(c.strength / 1.5),
+    })),
+    style: S,
+  });
+  const band = ringBand({ path, widths: ringWidths, ringHalf, seed, style: S });
+  const inkAlpha = striations(seed, S);
+
+  /* Composite width per angle, for the probe: the ring, or the cluster
+     envelope where it reaches further. Breaks read as no ink. */
+  const widths = new Float32Array(N + 1);
+  for (let i = 0; i <= N; i++) {
+    const a = startA + (i / N) * TAU;
+    let m = ink[i] > 0.3 ? ringWidths[i] : 0;
+    for (const c of clusters) {
+      const w = clusterWidthAt(c, a);
+      if (w > m) m = w;
+    }
+    widths[i] = m;
+  }
+
+  /* ---- the marks ------------------------------------------------------- */
+  const built = clusters.map((shape) => ({
+    shape,
+    marks: clusterMarks({ shape, rng, pathAt, style: S }),
+  }));
+
+  const pools = { strokes: [], deposits: [], flakes: [], fringe: [], sweeps: [], scratches: [] };
+  const clusterRefs = [];
+  for (const b of built) {
+    for (const k of Object.keys(pools)) pools[k].push(...b.marks[k]);
+    clusterRefs.push({ shape: b.shape, anchors: b.marks.anchors });
+  }
+
+  const fil = filaments({ clusters: clusterRefs, rng, ringHalf, seed, style: S, pathAt });
+  const dots = specks({ clusters: clusterRefs, rng, style: S });
+
+  const trails = ringTrails({
+    path, ringHalf, seed, rng,
+    anchors: clusters.map((c) => ({ a: c.angle })),
+    style: S,
+  });
+
+  /* ---- ops ------------------------------------------------------------- */
   const ops = [];
-  const CHUNK = 4;
-  const STRIPS = 8;
 
-  /* ---- the stroke ------------------------------------------------------ */
+  /** push a list as several batches, so nothing arrives all at once */
+  const pushBatches = (list, batchSize, weight, draw, group) => {
+    if (!list.length) return;
+    for (let i = 0; i < list.length; i += batchSize) {
+      const slice = list.slice(i, i + batchSize);
+      ops.push({ w: weight * (slice.length / list.length), g: group, draw: (ctx) => draw(ctx, slice) });
+    }
+  };
+
+  /* 1. the ring, in chunks so the limb appears to travel */
+  const CHUNK = 4;
   for (let s = 0; s < N; s += CHUNK) {
     const e = Math.min(s + CHUNK, N);
-    /* mean load over the run: the bristle spacing follows the pressure, and a
-       per-sample value would tear the streaks sideways at every chunk join */
-    let load = 0;
-    for (let i = s; i < e; i++) load += widths[i];
-    load /= (e - s) * (peak || 1);
+    let mi = 0, mw = 0;
+    for (let i = s; i <= e; i++) { mi += ink[i]; mw += ringWidths[i]; }
+    mi /= (e - s + 1);
+    mw /= (e - s + 1);
+    if (mi <= 0.15) continue;
+    const load = clamp01((mw / ringHalf - 0.8) / 1.8);
     ops.push({
-      w: 3,
+      w: 1.6 + 2.4 * load,
+      g: 'ring',
       draw: (ctx) => drawBandChunk(ctx, band, s, e, {
-        maxStrips: STRIPS, along: (s + e) / (2 * N), load, alphaAt: ink,
+        maxStrips: 4, along: (s + e) / (2 * N), load, ink: mi, alphaAt: inkAlpha,
       }),
-      /* The limb tip, wet-only: it exists only while the stroke is being laid
-         down, so baking it in would leave a fringe of spikes round the ring. */
       tip: (ctx) => limbTip(ctx, path[e - 1], ringHalf),
     });
   }
 
-  /* ---- dry brush over the footprint ------------------------------------ */
-  const marks = dryTexture({ path, widths, seed, ringHalf });
-  for (let part = 0; part < 3; part++) {
-    const slice = marks.filter((_, i) => i % 3 === part);
-    if (!slice.length) continue;
-    ops.push({ w: 0.5, dryOnly: true, draw: (ctx) => drawDryTexture(ctx, slice) });
-  }
+  /* 2. the clusters — sweeps first, then the body, then the wet core, then
+        the damage to its boundary */
+  pushBatches(pools.sweeps, 4, 0.8, drawStrokes, 'sweep');
+  pushBatches(pools.strokes, 10, 1.0, drawStrokes, 'mass');
+  pushBatches(pools.deposits, 8, 0.9, drawStrokes, 'mass');
+  pushBatches(pools.fringe, 8, 0.8, drawStrokes, 'mass');
+  pushBatches(pools.flakes, 8, 0.7, drawFlakes, 'mass');
+  pushBatches(pools.scratches, 6, 0.7, drawStrokes, 'mass');
 
-  /* ---- the offshoots --------------------------------------------------- */
-  /* After the circle, so their roots land on top of the blot and vanish into it.
-     Split into batches purely so they arrive over a few frames rather than all
-     at once — the geometry was computed in one place, above. */
-  const fil = filaments({ blots: blotData, rng, ringHalf, seed });
-  const BATCHES = 4;
-  for (let b = 0; b < BATCHES; b++) {
-    const slice = fil.filter((_, i) => i % BATCHES === b);
-    if (!slice.length) continue;
-    ops.push({ w: 1.1, draw: (ctx) => drawFilaments(ctx, slice) });
-  }
+  /* 3. the bristles */
+  pushBatches(fil, Math.max(1, Math.ceil(fil.length / 4)), 0.55, drawFilaments, 'bristle');
 
-  const dots = specks({ blots: blotData, rng });
-  if (dots.length) {
-    // faint last: spatter is the driest thing on the glass
-    ops.push({ w: 1.4, draw: (ctx) => drawSpecks(ctx, dots) });
-  }
+  /* 4. the driest marks: trails, ticks, flecks */
+  pushBatches(trails.trails, 10, 0.5, drawTrails, 'trail');
+  pushBatches(trails.ticks, 30, 0.35, drawTrails, 'tick');
+  if (dots.length) ops.push({ w: 0.5, g: 'speck', draw: (ctx) => drawSpecks(ctx, dots) });
 
   /* ---- faint interior scratches ---------------------------------------- */
-  /* Barely-there pen marks inside the ring. Very low alpha, broken. */
-  const nGhost = ri(rng, 1, 3);
+  const nGhost = riGhost(rng);
   for (let i = 0; i < nGhost; i++) {
     const ga = rr(rng, 0, TAU), gr = rr(rng, 0.26, 0.60);
     const gs = rr(rng, 0.5, 1.7), gph = rr(rng, 0, 90);
@@ -249,6 +278,7 @@ export function makeRingGlyph(seed) {
     }
     ops.push({
       w: 1.0,
+      g: 'ghost',
       dryOnly: true,
       draw(ctx) {
         ctx.lineCap = 'round';
@@ -269,11 +299,8 @@ export function makeRingGlyph(seed) {
   }
 
   /* ---- interior plume --------------------------------------------------- */
-  /* One localised wisp, heavily clipped. The haze is deliberately not clipped to
-     the ring: in the film it drifts across the stroke and spills outside it,
-     which is much of why the glyph reads as ink on glass rather than as a drawn
-     circle. The reference *figures* have no haze on them, which is why the
-     comparison tool has an ink-only view. */
+  /* One localised wisp, heavily clipped. The reference *figures* have no haze
+     on them, which is why the review page has an ink-only view. */
   const plumeAng = rr(rng, 0, TAU);
   const plumeR = rr(rng, 0.06, 0.26);
   const px0 = Math.cos(plumeAng) * plumeR, py0 = Math.sin(plumeAng) * plumeR;
@@ -285,6 +312,7 @@ export function makeRingGlyph(seed) {
     const amt = s / SMOKE_STEPS;
     ops.push({
       w: 1.15,
+      g: 'plume',
       dryOnly: true,
       draw(ctx) {
         ctx.save();
@@ -298,18 +326,25 @@ export function makeRingGlyph(seed) {
 
   const total = ops.reduce((s, o) => s + o.w, 0);
   return {
-    ops, total, seed,
+    ops, total, seed, style: S,
     sectors: profile, sectorAngle,
     path, widths, ringHalf,
-    blots: blotData, peak,
+    blots: clusters, peak,
     filaments: fil, specks: dots,
     profileAt,
   };
 }
 
+/** 0-2 barely-there interior pen marks */
+function riGhost(rng) {
+  const u = rng();
+  return u < 0.45 ? 0 : u < 0.85 ? 1 : 2;
+}
+
 /**
- * The limb's tip: a wedge trailing the head of the stroke. Only meaningful
- * while the stroke is being laid down, hence wet-only.
+ * The limb's tip: a wedge trailing the head of the stroke, wet-only. It
+ * exists only while the stroke is being laid down, so baking it in would
+ * leave a fringe of spikes round the ring.
  */
 function limbTip(ctx, h, ringHalf) {
   const a = h.a + Math.PI / 2;

@@ -22,6 +22,61 @@ export const INK = {
 };
 
 /**
+ * Style calibration.
+ *
+ * The generator is a layered ink process — ring, accumulated stroke clusters,
+ * bristles, flecks — and these are the knobs that decide how much of each a
+ * glyph carries. They exist as a named, clamped block rather than as buried
+ * constants so the review page can drive them directly: with the sliders wired
+ * to these values the comparison sheet stops being a seed browser and becomes
+ * a calibration surface, and a style found by eye can be written back here as
+ * the default.
+ *
+ * Turn one up and one thing changes, not the whole picture:
+ *
+ *   clusterCount    how many dense deposits a glyph carries (mean, 1..4ish)
+ *   clusterDensity  how many strokes each deposit is made of
+ *   filamentDensity how many bristles and spines leave the deposits
+ *   filamentLengthVariance  how uneven filament length is (0 = uniform)
+ *   ringWobble      how far the base circle departs from a perfect circle
+ *   inkRoughness    how irregular every boundary and every mark is
+ *   microSplatter   how many flecks, ticks and stray specks are thrown
+ */
+export const STYLE = {
+  clusterCount: 2.5,
+  clusterDensity: 0.15,
+  filamentDensity: 1.3,
+  filamentLengthVariance: 0.2,
+  ringWobble: 0.6,
+  inkRoughness: 1.5,
+  microSplatter: 0.0,
+};
+
+export const STYLE_RANGE = {
+  clusterCount: [0.5, 4.5],
+  clusterDensity: [0.15, 2.5],
+  filamentDensity: [0.15, 2.5],
+  filamentLengthVariance: [0, 2.5],
+  ringWobble: [0, 2.5],
+  inkRoughness: [0.2, 2.5],
+  microSplatter: [0, 3],
+};
+
+/** merge a partial style over the defaults, clamping every value to range */
+export function resolveStyle(overrides) {
+  const out = { ...STYLE };
+  if (!overrides) return out;
+  for (const k of Object.keys(STYLE)) {
+    const v = Number(overrides[k]);
+    if (Number.isFinite(v)) {
+      const [lo, hi] = STYLE_RANGE[k];
+      out[k] = v < lo ? lo : v > hi ? hi : v;
+    }
+  }
+  return out;
+}
+
+/**
  * Logogram geometry.
  *
  * `sectors` is the important one. Wolfram's sectionBreaking-01.nb splits a
@@ -33,260 +88,218 @@ export const INK = {
 export const GLYPH = {
   sectors: 12,
   /** ring path resolution */
-  pathSegments: 216,
+  pathSegments: 288,
   /**
    * The ring: a thin line of near-constant weight, as a half-width in
-   * ring-radius units.
-   *
-   * Two corrections live in this number. First, the ring is not "a stroke whose
-   * weight varies" — it is a *circle*, drawn with an even hand, present in
-   * every one of the 38 frames and usually complete. What varies is not the
-   * circle, it is what has been dropped on top of it. Modelling the two as one
-   * variable-width stroke was wrong in a way that took a long time to see,
-   * because the statistics of the two models overlap almost completely.
-   *
-   * Second, and more embarrassing: 0.021 was too heavy by well over twice. It
-   * came from a screenshot and was never re-derived, and every later
-   * measurement was normalised against it, so the error propagated into
-   * everything. Measured with a distance transform on the full-resolution
-   * frames — which is immune to the thing that had been corrupting every
-   * earlier attempt, namely that a spike lying along a ray reads as a very
-   * thick mark — the ring is 0.015 to 0.022 R *across*, so a half-width around
-   * 0.009 R.
+   * ring-radius units. Measured across the reference frames, the circle runs
+   * 0.016 to 0.043 R *across*, so a half-width of roughly 0.008 to 0.021 R.
    */
-  ring: [0.008, 0.019],
+  ring: [0.012, 0.024],
 
-  /** How much the ring's weight varies around the circle, as a fraction of
-   *  its half-width. Small: a wobbly line reads as a wobbly line, and the
-   *  reference rings are even. */
-  ringVariation: 0.24,
+  /** Base radius wobble, as three amplitudes (low, mid, high frequency).
+   *  Hand-drawn, but compass-guided: the reference circles are clearly
+   *  circles. Scaled by STYLE.ringWobble. */
+  wobble: [0.055, 0.028, 0.013],
+  /** how elliptic the ring is allowed to be */
+  eccentricity: [0.015, 0.06],
 
-  /**
-   * Ring radius wobble, as three amplitudes (low, mid, high frequency).
-   *
-   * Much smaller than a hand-drawn circle would suggest. These logograms were
-   * compass-guided and the originals are strikingly round; an earlier version
-   * at twice these amplitudes read as a wobbly circle rather than a glyph.
-   */
-  wobble: [0.055, 0.022, 0.010],
-  /** blots per glyph. One is common and three is the most seen in the set. */
-  blots: [1, 3],
+  /** where the ring lifts off the glass, leaving a break. Most frames are a
+   *  closed circle, so this is a chance per glyph and per break. */
+  breakChance: 0.50,
+  breaks: [0, 2],
+  breakSpan: [0.06, 0.28],
+  /** the brush lift: a long one-sided fade before the clean end of a break */
+  breakLift: [0.06, 0.22],
 
-  /** The ring lifts off the glass occasionally, leaving a clean break. It is
-   *  the exception — most frames are a closed circle — so this is the chance
-   *  that a glyph has one gap at all, and how long it is. */
-  gapChance: 0.35,
-  gapSpan: [0.10, 0.40],
-  /** interior ink haze. This is a whisper: the film's haze barely tints the
-   *  circle, and a large or strong one turns the whole glyph into a grey
-   *  smudge with the ring drawn on top of it. */
+  /** faint stretches, where the ink barely touched the glass */
+  faintChance: 0.55,
+  faintSpan: [0.20, 0.90],
+  faintLevel: [0.22, 0.58],
+
+  /** interior ink haze. A whisper: this is the film's haze, not the figure. */
   plumeAlpha: [0.004, 0.011],
-  /** plume radius, in ring radii — deliberately well under 1, so the haze
-   *  clings to one side instead of filling the circle */
+  /** plume radius, in ring radii — under 1, so the haze clings to one side */
   plumeRadius: [0.40, 0.68],
 };
 
 /**
- * The blot.
+ * The dense clusters.
  *
- * A compact, dense, irregular blob of ink dropped on the ring. Everything here
- * describes that blob, and the shape it is *not* is a tapered blade: the first
- * version modelled the heavy regions as the stroke swelling gently over 60 to
- * 100 degrees of arc, and the references' blots are nothing like that. They are
- * short — most span 25 to 45 degrees — and they are *deep*, five to nine times
- * the ring's own weight, with an irregular lobed outline like a splat.
- *
- * Measured across all 38 frames (see tools/probe-ink.html for the live
- * comparison against these ranges):
- *
- *   ring weight      0.043 R across at the thinnest, and near-constant
- *   blot peak        4 to 15 times the ring, most often around 7
- *   blot coverage    8% to 57% of the circumference, median 38%
- *   blot count       1 or 2 typically, 3 at most
+ * The failure this configuration exists to kill: a cluster drawn as one filled
+ * arc with a smooth width envelope. That reads as vector geometry no matter
+ * how much noise is applied to its edge, because the *mass* is one coherent
+ * shape. What the references have is deposition: a few hundred overlapping
+ * brush strokes, deposits and flecks that happen to accumulate into a dark
+ * region. The cluster's envelope below is therefore only a *placement field* —
+ * where strokes are likely to land and how wide they are — and never a shape
+ * that gets filled. See blot.js.
  */
 export const BLOT = {
-  /** peak half-width, as a multiple of the ring's half-width. The blot-to-ring
-   *  ratio is the number that decides whether a logogram reads as a drawn
-   *  circle with ink on it or as a lumpy band, and across the corpus it runs
-   *  from about 5 to about 20 with a typical value near 9. */
-  peak: [6.5, 18.0],
+  /** angular half-span, radians. A deposit is compact first: 6-15 degrees
+   *  across for most, up to about 34 for a wispy one. The tails that trail
+   *  from them are sweeps, not body. */
+  span: [0.10, 0.60],
 
-  /** the blot's shape across its arc, as an exponent on the parabolic falloff
-   *  in blot.js. Well below 1 gives the *full* outline a splat has — nearly its
-   *  peak width over the middle of its span and falling away only near the
-   *  ends. A Gaussian is the obvious thing to reach for and is far too pointy;
-   *  even 0.62 left the blots reading as modest thickenings of the circle
-   *  rather than as ink dropped on it. */
-  shoulder: 0.42,
+  /** cluster peak half-width as a multiple of the ring's half-width. A
+   *  deposit is wide along the arc and shallow across it; the deep end of
+   *  this range is reserved for the occasional dominant mass. */
+  peak: [3.5, 7.0],
+  /** hard cap on the mass half-width in R (the heaviest reference is 0.195) */
+  maxHalf: 0.195,
 
-  /** angular half-span, radians — most blots are 25 to 45 degrees across */
-  span: [0.30, 0.95],
+  /** envelope asymmetry: the width and the sharpness of each flank */
+  sigma: [0.35, 0.65],
+  sharp: [1.3, 2.4],
+  /** a low shoulder that carries moderate ink a little way out along the
+   *  span, so the deposit tapers into the ring instead of stopping dead */
+  shoulder: [0.06, 0.16],
 
-  /** irregularity of the outline at two scales, and how fast it varies along
-   *  the blot. A smooth ellipse reads as a drawn shape. */
-  lumpiness: 0.26,
-  lumpFreq: 3.0,
+  /** multi-scale lumpiness of the placement envelope */
+  lumpiness: 0.50,
+  /** up to this many deep bites out of the envelope */
+  bites: 3,
 
-  /** How far a blot extends outward versus inward from the ring line. Ink
-   *  dropped on a circle sits on it rather than centred in it, and it spills
-   *  outward more than inward. */
-  bulge: [0.55, 1.05],
+  /** pressure strokes — the body of the mass, all overlapping */
+  strokes: [70, 220],
+  /** near-solid deposits, short and heavy, at the wet core */
+  deposits: [60, 150],
+  /** small flake polygons at the core, where the ink is nearly solid */
+  flakes: [24, 70],
+  /** edge strokes that chew up the boundary */
+  fringe: [16, 45],
+  /** long dry-brush sweeps that trail along the ring */
+  sweeps: [2, 5],
+  /** thin scratches crossing the mass at an angle */
+  scratches: [0, 4],
+  /** paper holes left inside a cluster */
+  holes: 3,
 };
 
 /**
- * The stroke — the band the mass swells out of.
+ * The base stroke.
  *
- * Kept in the references' own terms rather than as a drawing convenience:
- * real ink over its own path is striated lengthwise, with thin gaps where the
- * bristles did not touch, and a uniformly filled band reads instantly as vector.
+ * The ring is a genuine band whose width varies along the circle, so it is
+ * drawn as a filled band with torn edges rather than as hundreds of nervous
+ * little strokes. Everything heavy is handled by blot.js.
  */
 export const STROKE = {
-  /** how far the bristles separate, at the hairline and at the mass. Note this
-   *  runs the *other* way to what intuition suggests: the mass is the most
-   *  solid part, because it is where the brush pressed hardest, and the tearing
-   *  in the references happens at its *edge* rather than through its middle.
-   *  Making the mass itself gappy is the obvious move and it produces grey
-   *  airbrushed blobs where the references have black ones.
-   *
-   *  The values stay high overall for the same reason: remapped linearly, a
-   *  mean-0.5 noise gives a mean alpha near 0.4 and the ring turns into a faded
-   *  photocopy of a logogram. */
-  tear: [0.22, 0.10],
-
-  /** below this noise value the tip skipped the glass and the streak is cut */
-  skip: 0.30,
-
-  /** raggedness of the band's edge, on four scales — see ringBand() */
+  /** edge raggedness of the band, as a fraction of local width; scaled by
+   *  STYLE.inkRoughness */
   ragged: 0.42,
+  /** how much the lengthwise streaks separate, at the quiet ring and on a
+   *  local swell */
+  tear: [0.05, 0.28],
+  /** below this noise value the tip skipped the glass and the streak is cut */
+  skip: 0.13,
+  /** the band sits this far out / in from the path, as fractions of width */
+  poolOut: [0.65, 1.00],
+  poolIn: [0.50, 0.85],
 
-  /** The quiet baseline: the hairline multiplied by [lo + hi * sectorProfile].
-   *  The lo/hi split matters. This used to be [0.62, 0.85], which put the
-   *  *median* stretch of stroke at the hairline — but the references' median is
-   *  1.6x the hairline, so half the circle came out too thin. The measurements
-   *  are a long tail from the hairline up to 10x, not a thin stroke with
-   *  occasional blobs on it. */
-  base: [0.66, 1.14],
+  /** local swells of the ring: how many, how strong, how wide (radians) */
+  swell: [2, 4],
+  swellAmp: [0.50, 1.50],
+  swellSpan: [0.06, 0.22],
 
-  /** below this lift value the stroke comes off the glass entirely. The
-   *  references have ~6% of the circle with no ink at all. */
-  lift: 0.16,
-
-  /** how much the band bulges outward under load, versus inward. Ink displaced
-   *  by a brush travelling round a circle piles up on the outside of its line,
-   *  and piles up more the harder it was pressed. */
-  poolOut: [0.62, 1.20],
-  poolIn: [0.44, 0.26],
+  /** scratch trails running beside the ring, mostly near clusters */
+  trails: [2, 4],
+  trailSpan: [0.12, 1.00],
+  /** dry ticks — tiny short scratches along the circle */
+  ticks: [20, 60],
 };
 
 /**
- * The offshoots.
+ * Bristles, spines and tendrils.
  *
- * These are the thing most often got wrong. They are not bristles (too thin,
- * too many, too short), and they are not wedges along the tangent (wrong
- * direction, wrong scale). Measured, they are:
- *
- *   length            0.34 R at the median, 0.53 at p90, 0.80 at the maximum,
- *                     measured from the ring outward
- *   cross-section     0.032 R at the root — about *hairline* weight, not a
- *                     fraction of the mass
- *   direction         median 49 degrees off the tangent, p10 23, p90 70. That
- *                     is close to isotropic with a slight outward lean, which is
- *                     what a splash does. A tangential fan is a guess that the
- *                     measurement does not support.
- *   count             about 11 per logogram extend past 1.2 R, range 2 to 35
- *   tip               tapers to a *rounded* point. At low resolution the tips
- *                     look clubbed, which is an artefact of downscaling; a
- *                     cross-section profile measured along each filament falls
- *                     monotonically (tip/mid = 0.52).
+ * All of these leave the accumulated mass, and most leave it along the
+ * direction of a stroke that is already there — a bristle is the tail of the
+ * brush, not a ray from the centre. Counts are per cluster, scaled by that
+ * cluster's weight and by STYLE.filamentDensity.
  */
 export const OFFSHOOT = {
-  /** filaments per logogram. Scaled per deposit by how heavy it is, then this
-   *  bounds the total. */
-  count: [26, 64],
+  /** fine short hairs */
+  fringe: [12, 32],
+  /** longer filaments */
+  medium: [6, 16],
+  /** near-straight spines, the spectacular ones */
+  spines: [0, 2],
+  /** long curved tendrils that hook or loop */
+  tendrils: [0, 3],
 
-  /** length, in ring radii, from the root to the tip */
-  length: [0.04, 0.30],
+  /** visible length in R, per type */
+  length: {
+    fringe: [0.018, 0.075],
+    medium: [0.050, 0.170],
+    spine: [0.080, 0.260],
+    tendril: [0.120, 0.380],
+  },
+  /** root half-width as a multiple of the hairline */
+  width: {
+    fringe: [0.25, 0.60],
+    medium: [0.35, 0.75],
+    spine: [0.45, 0.90],
+    tendril: [0.60, 1.50],
+  },
+  /** direction mixture per type: [outward, tangential, inward] */
+  mix: {
+    fringe: [0.28, 0.58, 0.14],
+    medium: [0.30, 0.55, 0.15],
+    spine: [0.60, 0.35, 0.05],
+    tendril: [0.12, 0.60, 0.28],
+  },
+  /** how strongly a filament continues the stroke it grew from (0..1) */
+  inherit: 0.45,
 
-  /** root half-width, as a multiple of the hairline. Around 1 means a filament
-   *  is about as heavy as the thinnest part of the stroke, which is what the
-   *  measurements say and what the eye confirms. */
-  width: [0.45, 1.15],
-
-  /** exponent of the taper. The references fall *slowly* along most of the
-   *  length and then round off, so this is well below 1 — a linear cone or a
-   *  Gaussian both thin too fast and read as a spike of grass. See `tipCap`. */
+  /** taper exponent, tip floor and lengthwise undulation, as measured */
   taper: 0.42,
-
-  /** the cross-section the taper settles at before the end cap. Fitting the
-   *  measured profiles gives w(u) = w0 * (0.18 + 0.82 (1-u)^0.42), and the
-   *  round cap on the final segment turns this floor into the rounded end the
-   *  references have. Setting it to 0 gives a mathematically sharp needle,
-   *  which is the one thing they are not. */
   tipCap: 0.18,
-
-  /** irregularity along the length — the visible nodes and swells. Straight
-   *  conical filaments read as grass. */
   undulate: 0.38,
   undPeriods: 2.6,
 
-  /** hard cap on a filament's reach. The outliers below would otherwise push
-   *  past the longest filament in any reference frame, and a single absurd
-   *  filament is more conspicuous than any number of dull ones. */
-  maxLength: 0.52,
+  maxLength: 0.34,
+  /** exponent of the length distribution: higher packs more into short */
+  lengthSkew: 1.5,
+  /** chance of a long outlier, and the range it is multiplied by */
+  outlier: [0.03, 1.2, 1.5],
 
-  /** the length distribution is skewed hard toward short: the references have
-   *  a dense fringe of short filaments along the mass and only a handful of
-   *  long ones. A uniform distribution over the same range puts too many long
-   *  ones on and the fringe stops reading as a fringe. */
-  lengthSkew: 1.9,
+  /** how much the filaments bow and curl, per type, as fractions of length */
+  bow: {
+    fringe: [0.005, 0.05],
+    medium: [0.03, 0.12],
+    spine: [0.02, 0.10],
+    tendril: [0.04, 0.16],
+  },
+  curl: {
+    fringe: [0.02, 0.14],
+    medium: [0.05, 0.30],
+    spine: [0.02, 0.14],
+    tendril: [0.40, 1.00],
+  },
 
-  /** how much the filament bows sideways over its length, radians */
-  bow: [0.02, 0.13],
-
-  /** angular spread of the emission direction about the outward radial, in
-   *  radians. The measurement's p10-p90 is roughly +-40 degrees of the median,
-   *  which a sum-of-three-uniforms scaled by this reproduces. */
-  spread: 1.25,
-
-  /** Emission is gated on the *local* blot weight, as a fraction of that blot's
-   *  own peak. This is the rule that spikes leave blots and never the thin
-   *  circle: a blot's profile falls to nothing at the ends of its own arc, so
-   *  "inside the arc" is not the same as "on thick ink", and filaments emitted
-   *  from the thin ends read as a hairy circle rather than a splashed one. */
-  minLoad: 0.30,
-
-  /** where along the blot a filament is emitted from, as a fraction of the
-   *  blot's own half-span */
-  outlet: [0.15, 0.95],
-
-  /** Filaments arrive in clumps, not a comb. The references' fringes are
-   *  bunches of filaments from near the same point on the mass, fanning out,
-   *  with bare stretches between the bunches. Spacing them evenly along the
-   *  arc is the single clearest sign that a fringe is generated. */
-  clumps: [3, 7],
-  /** half-width of a clump along the mass, as a fraction of the mass's span */
-  clumpSpread: 0.22,
-  /** how tightly the directions within a clump agree. 0 is one shared
-   *  direction for the whole clump, larger fans it out. */
-  clumpFan: 0.85,
+  /** filaments are emitted in clumps: how many, and how widely they fan */
+  clumps: [3, 6],
+  clumpFan: 0.50,
+  /** a root must sit on this fraction of the local envelope, or it is skipped */
+  minLoad: 0.14,
 };
 
 /**
- * Spatter.
+ * Spatter and micro-texture.
  *
- * The references carry real speckle: around 56 detached dots per logogram,
- * each about 0.011 R across, together about 1% of the ink area, clustered
- * within about 1.5 R of the centre — thrown where the ink flicked, not sprayed
- * evenly over the frame.
+ * Detached dots and flecks, clustered where the ink flicked and along the
+ * scratch trails — never spread evenly over the frame. Scaled by
+ * STYLE.microSplatter.
  */
 export const SPATTER = {
-  perMass: [12, 34],
+  /** flecks per cluster */
+  perMass: [10, 34],
+  /** stray flecks anywhere on or near the ring */
+  stray: [0, 8],
   /** dot radius, in ring radii */
-  size: [0.0014, 0.0075],
+  size: [0.0009, 0.0055],
   /** distance from the ring, in ring radii */
-  reach: [0.02, 0.55],
-  /** fraction of dots that are teardrops rather than round */
-  stretched: 0.35,
+  reach: [0.02, 0.60],
+  /** fraction of dots that are stretched teardrops */
+  stretched: 0.40,
 };
 
 export const UNWRAP = {
