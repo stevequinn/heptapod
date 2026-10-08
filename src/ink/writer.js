@@ -20,7 +20,8 @@
 
 import * as THREE from 'three';
 import { INK } from '../config.js';
-import { TAU, clamp, clamp01, easeInOutSine, fbm2, mulberry32, smoothstep } from '../lib/math.js';
+import { TAU, clamp, clamp01, easeInOutSine, fbm2, mulberry32, rr, smoothstep } from '../lib/math.js';
+import { cloudTile } from './smoke.js';
 
 const WET_SCALE = INK.wetScale;
 /** resolution of the reveal field; the mask is smoothed up to the snapshot */
@@ -147,7 +148,9 @@ export class InkWriter {
   _makeMaterialise(m) {
     const R = m.R;
 
-    /* smoke: soft radial puffs at the ink, drawn once into their own sheet */
+    /* smoke: soft radial cores at the ink, drawn once into their own sheet.
+       The dense source of the cloud — the rest of the billow comes from the
+       ink-in-water layers below. */
     const size = Math.max(24, Math.ceil(R * 3.4));
     const smoke = document.createElement('canvas');
     smoke.width = smoke.height = size;
@@ -155,9 +158,10 @@ export class InkWriter {
     sg.translate(size / 2, size / 2);
     for (const p of m.glyph.materialise?.puffs ?? []) {
       const x = p.x * R, y = p.y * R, r = Math.max(1, p.r * R);
+      const a = p.a * 0.5;
       const grad = sg.createRadialGradient(x, y, 0, x, y, r);
-      grad.addColorStop(0, `rgba(9,11,13,${p.a})`);
-      grad.addColorStop(0.55, `rgba(9,11,13,${p.a * 0.45})`);
+      grad.addColorStop(0, `rgba(9,11,13,${a})`);
+      grad.addColorStop(0.55, `rgba(9,11,13,${a * 0.45})`);
       grad.addColorStop(1, 'rgba(9,11,13,0)');
       sg.fillStyle = grad;
       sg.beginPath();
@@ -166,6 +170,50 @@ export class InkWriter {
     }
     m.smoke = smoke;
     m.smokeSize = size;
+
+    /* ink clouds: the shared turbulent sheet, cut into a few soft discs so
+       the cloud clings to the glyph instead of fogging the whole pane. Two
+       rotated copies are intersected first: multiplying one field by itself
+       leaves the irregular streamers and holes of a real cloud, where a
+       single field masked by a vignette is just a grey puffball. The
+       vignette only trims the square corners. */
+    const lrng = mulberry32((m.glyph.seed ^ 0x85ebca6b) >>> 0);
+    const tile = cloudTile();
+    const layers = [];
+    for (let i = 0; i < 3; i++) {
+      const L = Math.max(48, Math.ceil(R * rr(lrng, 2.2, 3.0)));
+      const sp = document.createElement('canvas');
+      sp.width = sp.height = L;
+      const g2 = sp.getContext('2d');
+      g2.drawImage(tile, 0, 0, L, L);
+      g2.globalCompositeOperation = 'destination-in';
+      g2.save();
+      g2.translate(L / 2, L / 2);
+      g2.rotate(rr(lrng, 0.6, 2.6));
+      const sc = rr(lrng, 1.1, 1.5);
+      g2.scale(sc, sc);
+      g2.translate(-L / 2, -L / 2);
+      g2.drawImage(tile, 0, 0, L, L);
+      g2.restore();
+      g2.globalCompositeOperation = 'destination-in';
+      const vg = g2.createRadialGradient(L / 2, L / 2, 0, L / 2, L / 2, L / 2);
+      vg.addColorStop(0, 'rgba(0,0,0,1)');
+      vg.addColorStop(0.70, 'rgba(0,0,0,0.90)');
+      vg.addColorStop(1, 'rgba(0,0,0,0)');
+      g2.fillStyle = vg;
+      g2.fillRect(0, 0, L, L);
+      layers.push({
+        cv: sp,
+        base: L,
+        rot: rr(lrng, 0, TAU),
+        spin: rr(lrng, -0.55, 0.55),
+        dx: rr(lrng, -0.18, 0.18),
+        dy: rr(lrng, -0.18, 0.18),
+        alpha: rr(lrng, 0.40, 0.65),
+        grow: rr(lrng, 0.25, 0.50),
+      });
+    }
+    m.clouds = layers;
 
     const ign = m.glyph.materialise?.ignition ?? [{ x: 1, y: 0 }];
     const th = new Float32Array(MASK * MASK);
@@ -200,23 +248,38 @@ export class InkWriter {
     m.scratchCtx = sc.getContext('2d');
   }
 
-  /** composite a materialising mark: smoke under, partially revealed ink over */
+  /** composite a materialising mark: ink cloud under, partially revealed ink over */
   _paintMaterialising(ctx, m) {
     const p = easeInOutSine(clamp01(m.t));
 
-    const smokeA = Math.pow(1 - p, 1.1);
-    if (smokeA > 0.02 && m.smoke) {
-      /* the cloud billows outward as it thins */
-      const s = m.smokeSize * (0.80 + p * 0.50);
-      ctx.save();
-      ctx.globalAlpha = smokeA * 0.9;
-      ctx.drawImage(m.smoke, m.cx - s / 2, m.cy - s / 2, s, s);
-      ctx.restore();
+    /* the cloud fades in over the first quarter, billows up, then thins,
+       drifts and turns as the ink condenses; ink in water spreads outward
+       and dilutes, so the discs grow while their opacity falls */
+    const smokeA = smoothstep(0, 0.25, p) * Math.pow(1 - p, 0.9);
+    if (smokeA > 0.02) {
+      if (m.smoke) {
+        const s = m.smokeSize * (0.85 + p * 0.45);
+        ctx.save();
+        ctx.globalAlpha = smokeA * 0.55;
+        ctx.drawImage(m.smoke, m.cx - s / 2, m.cy - s / 2, s, s);
+        ctx.restore();
+      }
+      for (const L of m.clouds) {
+        const s = L.base * (1 + p * L.grow);
+        ctx.save();
+        ctx.translate(m.cx + L.dx * p * m.R, m.cy + L.dy * p * m.R);
+        ctx.rotate(L.rot + L.spin * p);
+        ctx.globalAlpha = smokeA * L.alpha;
+        ctx.drawImage(L.cv, -s / 2, -s / 2, s, s);
+        ctx.restore();
+      }
     }
 
+    /* the ink proper condenses out of the cloud once it is up */
+    const rp = clamp01((p - 0.12) / 0.88);
     const data = m.maskImg.data, th = m.maskTh;
     for (let k = 0; k < th.length; k++) {
-      const a = smoothstep(th[k], th[k] + 0.16, p);
+      const a = smoothstep(th[k], th[k] + 0.20, rp);
       const o = k * 4;
       data[o] = data[o + 1] = data[o + 2] = 0;
       data[o + 3] = (a * 255) | 0;
@@ -375,7 +438,8 @@ export class InkWriter {
       born: this.elapsed,
       retireAt: null,
       snap: null, snapCtx: null, snapSize: 0, snapR: R,
-      smoke: null, smokeSize: 0, maskCv: null, maskCtx: null,
+      smoke: null, smokeSize: 0, clouds: null,
+      maskCv: null, maskCtx: null,
       maskImg: null, maskTh: null, scratch: null, scratchCtx: null,
     };
     this._makeSnap(m);

@@ -1,12 +1,19 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   The ink haze that hangs inside and around a logogram.
+   Smoke: the ink haze inside a logogram, and the ink-in-water cloud a glyph
+   materialises out of.
 
-   A small tileable alpha mask, generated on demand and cached by seed. Each
-   glyph wants its own plume, so these are built per glyph — but a bounded
-   cache keeps memory flat across a long session.
+   Two different sheets live here:
+
+     plumeTile      the faint wash that clings inside a finished glyph
+     cloudTile      one shared, tileable sheet of turbulent ink, layered by
+                    the writer while a glyph condenses out of the water
+
+   Both are alpha masks. The cloud is generated once per session — it is the
+   same water for every glyph — while the plumes are per glyph and bounded by
+   an LRU cache.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { fbm2, clamp, smoothstep, mulberry32 } from '../lib/math.js';
+import { fbm2, clamp, clamp01, smoothstep, mulberry32 } from '../lib/math.js';
 
 const CACHE = new Map();
 const MAX = 12;
@@ -78,4 +85,69 @@ function smokeCanvas(seed) {
  */
 export function plumeTile(rng) {
   return smokeCanvas(Math.floor(rng() * 64));
+}
+
+/* ═══ the ink-in-water sheet ════════════════════════════════════════════ */
+
+/**
+ * Tile resolution. Larger than the plume because this is drawn at close to
+ * its own scale and the filaments have to survive; it is generated once per
+ * session, so the cost is a one-off.
+ */
+const CLOUD_SIZE = 256;
+let CLOUD = null;
+
+/**
+ * One tileable sheet of ink dropped in water.
+ *
+ * Built from a strongly domain-warped turbulence field: a main *billow* term
+ * for the soft folded mass of a spreading cloud, plus a finer second pass
+ * for the wisps streaming off it. The frequencies are integers on purpose —
+ * fbm2 wraps at whole units, so integer coordinates make the tile seamless,
+ * and they stay low because at this tile size higher octaves read as static
+ * rather than as ink.
+ */
+export function cloudTile() {
+  if (CLOUD) return CLOUD;
+  const S = CLOUD_SIZE;
+  const rng = mulberry32(0x9d2c5680);
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const g = cv.getContext('2d');
+  const img = g.createImageData(S, S);
+
+  const w1 = fbm2(rng, 2);
+  const w2 = fbm2(rng, 2);
+  const bill = fbm2(rng, 3);
+  const fine = fbm2(rng, 3);
+
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const u = x / S, v = y / S;
+
+      /* strong warp: the whole character of the sheet is in these two
+         fields displacing everything downstream of them */
+      const a1 = w1(u, v);
+      const a2 = w2(u + 5.1, v - 2.3);
+
+      /* the cloud mass */
+      const n = bill(u + a1 * 0.9, v + a2 * 0.9);
+      const main = Math.pow(clamp01(n * 2.05 - 0.72), 1.75);
+
+      /* the wisps: a finer pass through the same warp, faint and sparse */
+      const m = fine(u * 2 + a1 * 1.4 + 3.3, v * 2 + a2 * 1.4 - 1.1);
+      const wisps = Math.pow(clamp01(m * 2.0 - 0.78), 2.1) * 0.40;
+
+      const a = clamp01(main + wisps);
+
+      const i = (y * S + x) * 4;
+      img.data[i] = 7;
+      img.data[i + 1] = 9;
+      img.data[i + 2] = 11;
+      img.data[i + 3] = (a * 255) | 0;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  CLOUD = cv;
+  return cv;
 }

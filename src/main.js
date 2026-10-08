@@ -22,6 +22,7 @@ import * as THREE from 'three';
 import { INK, SCENE, UNWRAP } from './config.js';
 import { clamp, lerp } from './lib/math.js';
 import { makeRingGlyph } from './ink/glyph.js';
+import { cloudTile } from './ink/smoke.js';
 import { InkWriter } from './ink/writer.js';
 import { UnwrapView } from './unwrap/panel.js';
 import { Stage } from './scene/stage.js';
@@ -79,6 +80,10 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 resize();
+
+/* The ink-in-water sheet is generated once per session (~90ms of noise);
+   warm it once the scene is up so the first glyph request does not pay it. */
+setTimeout(() => cloudTile(), 1800);
 
 /* ── writing a glyph ───────────────────────────────────────────────────── */
 
