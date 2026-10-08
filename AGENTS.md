@@ -45,6 +45,16 @@ revealed through a threshold field (materialise), then that field is run
 backwards (dissolve). No stroke-order playback, no travelling limb, no cloud
 on the way out — smoke belongs to arrival only.
 
+**The pane must survive the ink.** In `glass.js` the ink section fetches the
+displaced background once and blends it in *by coverage*. A bare
+`col = texture2D(...)` reassignment there — fetch the displaced background,
+overwrite `col` — silently discards everything the pane did before it: the
+frost, the droplets, the lamp reflections, all of it, from the whole frame
+and not just from under the strokes. Exactly that shipped for months without
+failing anything, because the result still looked like a scene; it just wasn't
+the pane the shader describes. When a fetch's result is meant to sit under
+one layer, blend it by that layer's coverage.
+
 **No procedural noise in fragment shaders.** Phone GPUs run fragment floats at
 mediump; the old sin-hash fbm quantised into faint diagonal banding on mobile
 only. Everything smooth comes from the baked sheet in `scene/noise-tex.js`

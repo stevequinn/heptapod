@@ -265,9 +265,12 @@ function step(dt, draw = true) {
 
   app.heat = Math.max(0, app.heat - dt * 0.55);
 
-  /* The creatures lean toward wherever the writing is. */
+  /* The creatures lean toward wherever the writing is. Both branches are in
+     the same convention — y measured from the top, like the ink canvas and
+     like the pointer branch's `1 -` — so writing high on the pane draws the
+     limbs up. (The head branch used to be flipped, and they leaned away.) */
   const focus = head
-    ? { x: head.x / ink.size.x, y: 1 - head.y / ink.size.y }
+    ? { x: head.x / ink.size.x, y: head.y / ink.size.y }
     : (pointer.state.inside ? { x: pointer.state.x, y: 1 - pointer.state.y } : null);
   stage.podField.update(app.clock, dt, focus, head ? 1 : 0);
 

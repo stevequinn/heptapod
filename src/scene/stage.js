@@ -49,7 +49,14 @@ export class Stage {
     this.fog = fog;
     this.bgScene.add(fog.mesh);
 
-    this.podField = makePods(this.bgScene, FOG_MID);
+    /* The pods live inside the fog's volume, so they read the fog's own
+       clock, pointer parallax and aspect ratio — shared uniform entries,
+       one upload, no per-frame duplication. */
+    this.podField = makePods(this.bgScene, FOG_MID, {
+      uTime: fog.uniforms.uTime,
+      uCam: fog.uniforms.uCam,
+      uAspect: fog.uniforms.uAspect,
+    });
 
     /* ---- passes ------------------------------------------------------- */
     const glass = makeGlass();
@@ -66,6 +73,7 @@ export class Stage {
     fog.uniforms.tNoise.value = noise;
     glass.uniforms.tNoise.value = noise;
     final.uniforms.tNoise.value = noise;
+    for (const p of this.podField.pods) p.mat.uniforms.tNoise.value = noise;
 
     /* ---- targets ------------------------------------------------------ */
     // Byte targets, not half-float: nothing in this chain needs HDR
@@ -148,7 +156,11 @@ export class Stage {
     this.glass.uniforms.tWet.value = ink.wtex;
     this.glass.uniforms.uRes.value.set(ink.canvas.width, ink.canvas.height);
     this.glass.uniforms.uTime.value = view.clock;
-    this.glass.uniforms.uMouse.value.set(view.pointer.x, 1 - view.pointer.y);
+    /* pointer.y is already in the pane's uv convention (1 at the top —
+       input.js flips clientY once), and so is the shader's uv axis. The old
+       `1 -` here mirrored the limb glow to the opposite half of the pane
+       from the visitor's hand. */
+    this.glass.uniforms.uMouse.value.set(view.pointer.x, view.pointer.y);
     this.glass.uniforms.uHeat.value = view.heat;
     this.drawQuad(this.glass.mat, this.compRT);
 

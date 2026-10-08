@@ -20,8 +20,10 @@
    coordinates, so it tiles seamlessly; its feature size gives the sampling
    scale used by the shaders (1/16 texture units per old fbm unit).
 
-   Channels:  R, G, B  independent fbm fields — the three fog shells and the
-              frost
+   Channels:  R, G, B  independent fbm fields — the fog shells, the warp field
+              that churns them, the wandering light band, the frost and its
+              wet patches, the pods' mottling and the veil of mist in front
+              of them
               A        white noise — per-cell randomness (the condensation
                        droplets) and the film grain
    ═══════════════════════════════════════════════════════════════════════════ */
