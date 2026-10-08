@@ -374,5 +374,5 @@ if (flags.warm > 0) {
 
 /* expose a little of the internals, so the scene can be driven from a console
    or a screenshot harness without reaching into module scope */
-window.arrival = { app, ink, stage, unwrap, sound, requestGlyph, THREE, makeRingGlyph };
+window.heptapod = { app, ink, stage, unwrap, sound, requestGlyph, THREE, makeRingGlyph };
 }

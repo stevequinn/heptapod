@@ -18,7 +18,9 @@ import { SOUND } from '../config.js';
 import trackUrl from '../audio/background-sound.m4a';
 
 /** where the on/off choice is remembered; absence means sound is on */
-const PREF = 'arrival.sound';
+const PREF = 'heptapod.sound';
+/** the key it was remembered under before the app took its name */
+const PREF_OLD = 'arrival.sound';
 
 export function createSound() {
   const el = new Audio(trackUrl);
@@ -28,7 +30,7 @@ export function createSound() {
 
   let enabled = true;
   try {
-    enabled = localStorage.getItem(PREF) !== 'off';
+    enabled = (localStorage.getItem(PREF) ?? localStorage.getItem(PREF_OLD)) !== 'off';
   } catch { /* private mode: sound defaults on, just not remembered */ }
 
   /** idle → waiting (the first-visit delay) → on. Only ever moves forward. */
@@ -79,6 +81,7 @@ export function createSound() {
       enabled = on;
       try {
         localStorage.setItem(PREF, on ? 'on' : 'off');
+        localStorage.removeItem(PREF_OLD);
       } catch { /* ignore */ }
       if (on) {
         /* an explicit press, so no first-visit delay */

@@ -31,7 +31,7 @@ const RAW = `https://raw.githubusercontent.com/${REPO}/master/ScriptLogoJpegs`;
 const FORCE = process.argv.includes('--force');
 
 async function list() {
-  const res = await fetch(API, { headers: { 'user-agent': 'arrival-reference' } });
+  const res = await fetch(API, { headers: { 'user-agent': 'heptapod-reference' } });
   if (!res.ok) throw new Error(`GitHub API ${res.status} ${res.statusText}`);
   const items = await res.json();
   return items.filter((i) => i.type === 'file' && /\.jpe?g$/i.test(i.name));
@@ -50,7 +50,7 @@ async function main() {
     const dest = join(OUT, f.name);
     if (existsSync(dest) && !FORCE) { skipped++; continue; }
     try {
-      const res = await fetch(`${RAW}/${f.name}`, { headers: { 'user-agent': 'arrival-reference' } });
+      const res = await fetch(`${RAW}/${f.name}`, { headers: { 'user-agent': 'heptapod-reference' } });
       if (!res.ok) throw new Error(String(res.status));
       await writeFile(dest, Buffer.from(await res.arrayBuffer()));
       got++;
