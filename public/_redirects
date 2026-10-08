@@ -1,0 +1,4 @@
+# Single-page app: serve the app shell for any unknown path rather than a 404.
+# Real files (hashed assets under /assets, icons, etc.) are matched first, so
+# this only catches routes the app itself should handle.
+/*    /index.html   200

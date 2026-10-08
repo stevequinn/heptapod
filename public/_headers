@@ -1,0 +1,22 @@
+# Cloudflare Pages response headers.
+#
+# Note: no Content-Security-Policy is set here on purpose. This app drives a
+# WebGL canvas and procedural audio, and a strict CSP is easy to get subtly
+# wrong in a way that only fails in production. If you add one later, test it
+# with `npm run preview:cf` first.
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  Cross-Origin-Opener-Policy: same-origin
+
+# Vite fingerprints every file under /assets (name-<hash>.ext), so those can be
+# cached forever — a change produces a new filename.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The HTML shell must always be revalidated so a new deploy is picked up.
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate

@@ -1,0 +1,19 @@
+# Cloudflare Pages configuration for the Heptapod observation window.
+#
+# This is a fully static site: Vite emits `dist/`, and Cloudflare Pages serves
+# it directly. There is no Worker script (`main`) — the pages_build_output_dir
+# key is what marks this as a Pages project rather than a Workers project.
+#
+# Deploy with:  npm run deploy
+# Preview with: npm run preview:cf
+#
+# The custom domain (heptapod.dotdoing.com) is attached once, out of band:
+#   npx wrangler pages domain add heptapod.dotdoing.com --project-name heptapod
+# Domains are an account-level binding, not part of this committed config.
+
+name = "heptapod"
+pages_build_output_dir = "dist"
+
+# Pin the Workers/Pages runtime behaviour. Bump deliberately, after reading the
+# changelog, rather than letting it float.
+compatibility_date = "2026-10-08"
