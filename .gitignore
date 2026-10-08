@@ -5,3 +5,4 @@ dist/
 
 # reference logogram frames — film assets, fetched by `npm run reference`
 tools/reference/logograms/
+tmp/
