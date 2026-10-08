@@ -39,7 +39,7 @@ export const SOUND = {
   /** playback volume, 0..1 */
   volume: 0.32,
   /** how long after the visitor's first gesture the room tone begins */
-  delay: 0.0,
+  delay: 0.1,
 };
 
 /**
