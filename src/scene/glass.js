@@ -136,7 +136,12 @@ void main(){
     float d = length((uv - uRipple.xy) * asp);
     if (age > 0.0 && age < 3.0) {
       float r = age * 0.34;
-      float ring = exp(-pow((d - r) / 0.030, 2.0)) * exp(-age * 1.3);
+      /* confined the same way the fog's ripple is: gone before the ring's
+         radius outgrows the short side of the pane, where an arc would read
+         as a stray diagonal line across the screen */
+      float rMax = max(0.30, min(uAspect, 1.0) * 1.05);
+      float edge = 1.0 - smoothstep(0.62, 1.0, r / rMax);
+      float ring = exp(-pow((d - r) / 0.030, 2.0)) * exp(-age * 1.3) * edge;
       col += ring * uRipple.w * vec3(0.16, 0.20, 0.215);
       col += ring * uRipple.w * edgeN * 0.10;
     }

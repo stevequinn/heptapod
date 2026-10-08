@@ -70,7 +70,12 @@ void main(){
     float age = uTime - uRipple.z;
     if (age > 0.0 && age < 3.4) {
       float r = age * 0.34;
-      float ring = exp(-pow((d - r) / 0.045, 2.0)) * exp(-age * 1.25);
+      /* The ring must die while it is still a ring. A radius that passes the
+         short side of the pane leaves only a chord across the whole screen,
+         which reads as a stray diagonal line rather than as water. */
+      float rMax = max(0.30, min(uAspect, 1.0) * 1.05);
+      float edge = 1.0 - smoothstep(0.62, 1.0, r / rMax);
+      float ring = exp(-pow((d - r) / 0.045, 2.0)) * exp(-age * 1.25) * edge;
       col += ring * uRipple.w * vec3(0.30, 0.36, 0.38);
       col += exp(-pow(d / (0.10 + age * 0.30), 2.0)) * uRipple.w * 0.10 * exp(-age * 1.6);
     }
