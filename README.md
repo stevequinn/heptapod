@@ -1,5 +1,7 @@
 # Heptapod — Ink on Glass
 
+[https://heptapod.dotdoing.com](https://heptapod.dotdoing.com)
+
 A view into an observation window: fogged glass, two drifting heptapods, and
 their logographic script. Click and they answer — an inscription condenses out
 of ink in water, holds, and later dissolves back the way it came.
