@@ -25,7 +25,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { GLYPH, resolveStyle } from '../config.js';
-import { TAU, angDiff, clamp, clamp01, fbm1, lerp, mulberry32, rr } from '../lib/math.js';
+import { TAU, angDiff, clamp, clamp01, fbm1, lerp, mulberry32, ri, rr } from '../lib/math.js';
 import {
   clusterShape, clusterMarks, clusterWidthAt, drawStrokes, drawFlakes,
 } from './blot.js';
@@ -46,6 +46,11 @@ import { plumeTile } from './smoke.js';
 export function makeRingGlyph(seed, style = {}) {
   const S = resolveStyle(style);
   const rng = mulberry32(seed >>> 0);
+
+  /* overall radius multiplier: logograms differ in circumference by up to
+     about 20% (see GLYPH.size). Consumers scale the glyph by this when they
+     place it; geometry stays in the unit radius space. */
+  const scale = rr(rng, GLYPH.size[0], GLYPH.size[1]);
 
   const SECTORS = GLYPH.sectors;
   const sectorAngle = TAU / SECTORS;
@@ -241,7 +246,6 @@ export function makeRingGlyph(seed, style = {}) {
       draw: (ctx) => drawBandChunk(ctx, band, s, e, {
         maxStrips: 4, along: (s + e) / (2 * N), load, ink: mi, alphaAt: inkAlpha,
       }),
-      tip: (ctx) => limbTip(ctx, path[e - 1], ringHalf),
     });
   }
 
@@ -324,14 +328,52 @@ export function makeRingGlyph(seed, style = {}) {
     });
   }
 
+  /* ---- materialisation geometry ---------------------------------------- *
+   * Where the ink coalesces from, for the writer. The reveal is a field:
+   * each point of the glyph turns solid when the growing cloud of one or
+   * more ignition points reaches it, so the mark condenses out of smoke
+   * instead of being drawn around the circle. */
+  const ignition = clusters.map((c) => {
+    const P = pathAt(c.angle);
+    return { x: P.x, y: P.y };
+  });
+  {
+    const a = rr(rng, 0, TAU);
+    const P = pathAt(a);
+    ignition.push({ x: P.x, y: P.y });
+  }
+
+  const puffs = [];
+  for (const c of clusters) {
+    const n = ri(rng, 3, 6);
+    for (let i = 0; i < n; i++) {
+      const a = c.angle + rr(rng, -1, 1) * c.halfSpan;
+      const P = pathAt(a);
+      const tt = clamp(angDiff(a, c.angle) / c.halfSpan, -1, 1);
+      const off = c.envAt(tt) * rr(rng, -0.8, 0.9);
+      puffs.push({
+        x: P.x + P.nx * off, y: P.y + P.ny * off,
+        r: (0.10 + 2.6 * c.maxWidth) * rr(rng, 0.7, 1.3),
+        a: rr(rng, 0.35, 0.80),
+      });
+    }
+  }
+  const nRing = ri(rng, 3, 7);
+  for (let i = 0; i < nRing; i++) {
+    const a = rr(rng, 0, TAU);
+    const P = pathAt(a);
+    puffs.push({ x: P.x, y: P.y, r: rr(rng, 0.08, 0.20), a: rr(rng, 0.22, 0.50) });
+  }
+
   const total = ops.reduce((s, o) => s + o.w, 0);
   return {
-    ops, total, seed, style: S,
+    ops, total, seed, style: S, scale,
     sectors: profile, sectorAngle,
     path, widths, ringHalf,
     blots: clusters, peak,
     filaments: fil, specks: dots,
     profileAt,
+    materialise: { ignition, puffs },
   };
 }
 
@@ -339,22 +381,4 @@ export function makeRingGlyph(seed, style = {}) {
 function riGhost(rng) {
   const u = rng();
   return u < 0.45 ? 0 : u < 0.85 ? 1 : 2;
-}
-
-/**
- * The limb's tip: a wedge trailing the head of the stroke, wet-only. It
- * exists only while the stroke is being laid down, so baking it in would
- * leave a fringe of spikes round the ring.
- */
-function limbTip(ctx, h, ringHalf) {
-  const a = h.a + Math.PI / 2;
-  const L = ringHalf * 5.0, W = ringHalf * 2.3;
-  ctx.beginPath();
-  ctx.moveTo(h.x - Math.cos(a) * L, h.y - Math.sin(a) * L);
-  ctx.quadraticCurveTo(h.x - Math.cos(a) * L * 0.28, h.y - Math.sin(a) * L * 0.28, h.x, h.y);
-  ctx.quadraticCurveTo(h.x + Math.cos(a) * W * 0.9, h.y + Math.sin(a) * W * 0.9,
-    h.x - Math.cos(a) * L * 0.40, h.y - Math.sin(a) * L * 1.25);
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(0,0,0,0.85)';
-  ctx.fill();
 }

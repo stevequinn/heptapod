@@ -90,6 +90,14 @@ export const GLYPH = {
   /** ring path resolution */
   pathSegments: 288,
   /**
+   * Overall size, as a radius multiplier. The logograms in the film are not
+   * all drawn on the same circle: they run up to about 20% different in
+   * circumference, which at the scene scale reads as a difference in age or
+   * emphasis rather than as a change of species. Sampling [0.91, 1.09] makes
+   * the largest about 1.2x the smallest — a 20% difference in circumference.
+   */
+  size: [0.91, 1.09],
+  /**
    * The ring: a thin line of near-constant weight, as a half-width in
    * ring-radius units. Measured across the reference frames, the circle runs
    * 0.016 to 0.043 R *across*, so a half-width of roughly 0.008 to 0.021 R.
@@ -251,9 +259,17 @@ export const OFFSHOOT = {
 
   /** taper exponent, tip floor and lengthwise undulation, as measured */
   taper: 0.42,
-  tipCap: 0.18,
+  tipCap: 0.20,
   undulate: 0.38,
   undPeriods: 2.6,
+
+  /** the tip knob: a pinch along the shaft, then a swollen rounded head.
+   *  Scaled per type by its `bulb` factor (tendrils 1, fine hairs 0.35). */
+  tipBulb: 0.55,
+  bulbWidth: 0.13,
+  neckAt: 0.80,
+  neckWidth: 0.09,
+  neckDepth: 0.55,
 
   maxLength: 0.34,
   /** exponent of the length distribution: higher packs more into short */

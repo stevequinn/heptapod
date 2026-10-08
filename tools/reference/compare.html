@@ -180,7 +180,8 @@ function renderGlyph(seed, cell, cache) {
   const g = makeRingGlyph(seed, S.style);
   ctx.save();
   ctx.translate(cell / 2, cell / 2);
-  ctx.scale(cell * 0.40, cell * 0.40);
+  /* the glyph's own size multiplier is part of its identity now */
+  ctx.scale(cell * 0.40 * g.scale, cell * 0.40 * g.scale);
   for (const op of g.ops) if (!S.bare || !op.dryOnly) op.draw(ctx);
   ctx.restore();
   const out = S.threshold ? thresholdCanvas(cv) : cv;

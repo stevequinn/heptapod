@@ -39,21 +39,25 @@ const TYPE = {
     range: OFFSHOOT.fringe, len: OFFSHOOT.length.fringe,
     wid: OFFSHOOT.width.fringe, mix: OFFSHOOT.mix.fringe,
     bow: OFFSHOOT.bow.fringe, curl: OFFSHOOT.curl.fringe, und: 0.45,
+    bulb: 0.35,
   },
   medium: {
     range: OFFSHOOT.medium, len: OFFSHOOT.length.medium,
     wid: OFFSHOOT.width.medium, mix: OFFSHOOT.mix.medium,
     bow: OFFSHOOT.bow.medium, curl: OFFSHOOT.curl.medium, und: 0.40,
+    bulb: 0.60,
   },
   spine: {
     range: OFFSHOOT.spines, len: OFFSHOOT.length.spine,
     wid: OFFSHOOT.width.spine, mix: OFFSHOOT.mix.spine,
     bow: OFFSHOOT.bow.spine, curl: OFFSHOOT.curl.spine, und: 0.25,
+    bulb: 0.80,
   },
   tendril: {
     range: OFFSHOOT.tendrils, len: OFFSHOOT.length.tendril,
     wid: OFFSHOOT.width.tendril, mix: OFFSHOOT.mix.tendril,
     bow: OFFSHOOT.bow.tendril, curl: OFFSHOOT.curl.tendril, und: 0.35,
+    bulb: 1.0,
   },
 };
 
@@ -181,13 +185,20 @@ export function filaments({ clusters, rng, ringHalf, seed, style, pathAt }) {
       const ws = new Array(SEGMENTS);
       for (let s = 0; s < SEGMENTS; s++) {
         const t = s / (SEGMENTS - 1);
-        /* the measured cross-section: slow taper to a small cap, with visible
-           nodes and swells along the length */
+        /* the cross-section: slow taper along most of the length, a pinch,
+           then a swollen head at the tip. The references' tendrils do not
+           come to points — they end in a rounded knob, and the round cap on
+           the last segment turns the head into exactly that. The pinch makes
+           the knob read at any width; without it a rising end is invisible. */
         const taper = OFFSHOOT.tipCap + (1 - OFFSHOOT.tipCap)
                     * Math.pow(1 - t, OFFSHOOT.taper);
+        const pinch = 1 - OFFSHOOT.neckDepth * spec.bulb
+                    * Math.exp(-Math.pow((t - OFFSHOOT.neckAt) / OFFSHOOT.neckWidth, 2));
+        const bulb = OFFSHOOT.tipBulb * spec.bulb
+                   * Math.exp(-Math.pow((1 - t) / OFFSHOOT.bulbWidth, 2));
         const und = 1 + spec.und * OFFSHOOT.undulate
                   * (warp(t * OFFSHOOT.undPeriods + ph * 0.5) - 0.5) * 2;
-        ws[s] = Math.max(1e-4, w0 * taper * und);
+        ws[s] = Math.max(1e-4, w0 * (taper * pinch + bulb) * und);
 
         /* bow, curl and a little high-frequency wander; a strong curl is a
            tendril hooking back toward the mass */

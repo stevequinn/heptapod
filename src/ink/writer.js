@@ -5,16 +5,28 @@
    "wet sheen" buffer that evaporates over a second or so, and a per-mark
    snapshot so that fading never re-executes hundreds of vector strokes.
 
-   Ink has an explicit life. Each inscription is drawn progressively, held,
-   then faded and dropped, so the pane always returns toward clear instead of
-   silting up over a long session.
+   Inscription is *materialisation*, not drawing. Earlier versions laid the
+   glyph down stroke by stroke, which read as a limb travelling clockwise
+   around the circle — a drawing action. The film's logograms condense out of
+   the air instead. So a mark is rendered once, in full, into its snapshot;
+   what animates is a reveal field baked at add() time from the glyph's
+   ignition points, plus a sheet of soft smoke puffs. Each frame the snapshot
+   is composited through the growing field and the smoke fades over it, so
+   the ink appears where the cloud has reached and nowhere else. There is no
+   head, no stroke order, and no direction of travel.
+
+   Ink has an explicit life: materialise, hold, fade, drop.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import * as THREE from 'three';
 import { INK } from '../config.js';
-import { clamp, easeInOutSine } from '../lib/math.js';
+import { TAU, clamp, clamp01, easeInOutSine, fbm2, mulberry32, smoothstep } from '../lib/math.js';
 
 const WET_SCALE = INK.wetScale;
+/** resolution of the reveal field; the mask is smoothed up to the snapshot */
+const MASK = 96;
+/** reveal repaints are capped to this rate, pane redraw and texture upload */
+const ANIM_HZ = 30;
 
 export class InkWriter {
   constructor() {
@@ -68,10 +80,11 @@ export class InkWriter {
         m.R *= scale;
         m.cs = m.R;
         if (!m.finished) {
-          // Rebuild a partially drawn mark at the new scale from the ops
-          // already executed. Finished marks keep their snapshot.
+          /* rebuild the full snapshot and the materialisation at the new
+             scale; the reveal field is resolution-independent */
           this._makeSnap(m);
-          for (let i = 0; i < m.idx; i++) this._paintSnap(m, m.glyph.ops[i]);
+          for (const op of m.glyph.ops) this._paintSnap(m, op);
+          this._makeMaterialise(m);
         }
       }
       if (this.marks.length) this._repaint();
@@ -101,19 +114,6 @@ export class InkWriter {
     this.revision++;
   }
 
-  /** paint one op into a buffer, under the glyph's transform */
-  _paint(c2, mark, op, k, wet) {
-    c2.save();
-    c2.setTransform(
-      mark.cs * k, mark.sn * k,
-      -mark.sn * k, mark.cs * k,
-      mark.cx * k, mark.cy * k,
-    );
-    op.draw(c2);
-    if (wet && op.tip) op.tip(c2);
-    c2.restore();
-  }
-
   /** paint one op into the mark's own snapshot, in glyph-local coordinates */
   _paintSnap(m, op) {
     const c2 = m.snapCtx;
@@ -135,11 +135,118 @@ export class InkWriter {
   }
 
   /**
-   * Re-render the pane. A finished mark blits from its snapshot (a few
-   * drawImage calls) rather than re-executing hundreds of vector strokes —
-   * re-executing them on every fade tick was the main source of fade jank.
-   * A mark still being written has no complete snapshot, so its finished
-   * prefix replays from ops, which is bounded by the op count.
+   * Build the smoke sheet and the reveal field for a mark.
+   *
+   * The reveal field is a low-resolution canvas of *thresholds*: each pixel
+   * records when (0..1 of the inscription) it turns solid, from the distance
+   * to the glyph's ignition points plus a little noise. Per frame the field
+   * is turned into an alpha mask by comparing it with the current progress,
+   * and the snapshot is composited through it — so the ink condenses where
+   * the cloud has reached rather than being drawn along any path.
+   */
+  _makeMaterialise(m) {
+    const R = m.R;
+
+    /* smoke: soft radial puffs at the ink, drawn once into their own sheet */
+    const size = Math.max(24, Math.ceil(R * 3.4));
+    const smoke = document.createElement('canvas');
+    smoke.width = smoke.height = size;
+    const sg = smoke.getContext('2d');
+    sg.translate(size / 2, size / 2);
+    for (const p of m.glyph.materialise?.puffs ?? []) {
+      const x = p.x * R, y = p.y * R, r = Math.max(1, p.r * R);
+      const grad = sg.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, `rgba(9,11,13,${p.a})`);
+      grad.addColorStop(0.55, `rgba(9,11,13,${p.a * 0.45})`);
+      grad.addColorStop(1, 'rgba(9,11,13,0)');
+      sg.fillStyle = grad;
+      sg.beginPath();
+      sg.arc(x, y, r, 0, TAU);
+      sg.fill();
+    }
+    m.smoke = smoke;
+    m.smokeSize = size;
+
+    const ign = m.glyph.materialise?.ignition ?? [{ x: 1, y: 0 }];
+    const th = new Float32Array(MASK * MASK);
+    const rng = mulberry32((m.glyph.seed ^ 0x9e3779b9) >>> 0);
+    const nz = fbm2(rng, 3);
+    for (let j = 0; j < MASK; j++) {
+      for (let i = 0; i < MASK; i++) {
+        const x = ((i + 0.5) / MASK * 2 - 1) * 1.15;
+        const y = ((j + 0.5) / MASK * 2 - 1) * 1.15;
+        let d = 9;
+        for (const g0 of ign) {
+          const dd = Math.hypot(x - g0.x, y - g0.y);
+          if (dd < d) d = dd;
+        }
+        const n = nz((i / MASK) * 2.2, (j / MASK) * 2.2);
+        /* cap well below 1, so the field always completes during the
+           inscription rather than leaving a ghost of the last few pixels */
+        th[j * MASK + i] = Math.min(0.85, clamp01(d / 1.75 * 0.82 + (n - 0.5) * 0.55));
+      }
+    }
+    const mask = document.createElement('canvas');
+    mask.width = mask.height = MASK;
+    m.maskCv = mask;
+    m.maskCtx = mask.getContext('2d');
+    m.maskImg = m.maskCtx.createImageData(MASK, MASK);
+    m.maskTh = th;
+
+    /* scratch canvas for compositing the snapshot through the mask */
+    const sc = document.createElement('canvas');
+    sc.width = sc.height = m.snapSize;
+    m.scratch = sc;
+    m.scratchCtx = sc.getContext('2d');
+  }
+
+  /** composite a materialising mark: smoke under, partially revealed ink over */
+  _paintMaterialising(ctx, m) {
+    const p = easeInOutSine(clamp01(m.t));
+
+    const smokeA = Math.pow(1 - p, 1.1);
+    if (smokeA > 0.02 && m.smoke) {
+      /* the cloud billows outward as it thins */
+      const s = m.smokeSize * (0.80 + p * 0.50);
+      ctx.save();
+      ctx.globalAlpha = smokeA * 0.9;
+      ctx.drawImage(m.smoke, m.cx - s / 2, m.cy - s / 2, s, s);
+      ctx.restore();
+    }
+
+    const data = m.maskImg.data, th = m.maskTh;
+    for (let k = 0; k < th.length; k++) {
+      const a = smoothstep(th[k], th[k] + 0.16, p);
+      const o = k * 4;
+      data[o] = data[o + 1] = data[o + 2] = 0;
+      data[o + 3] = (a * 255) | 0;
+    }
+    m.maskCtx.putImageData(m.maskImg, 0, 0);
+
+    const sc = m.scratchCtx;
+    sc.setTransform(1, 0, 0, 1, 0, 0);
+    sc.clearRect(0, 0, m.scratch.width, m.scratch.height);
+    sc.drawImage(m.snap, 0, 0);
+    sc.globalCompositeOperation = 'destination-in';
+    sc.drawImage(m.maskCv, 0, 0, m.scratch.width, m.scratch.height);
+    sc.globalCompositeOperation = 'source-over';
+
+    const s = (m.snapSize * m.R) / m.snapR;
+    ctx.drawImage(m.scratch, m.cx - s / 2, m.cy - s / 2, s, s);
+  }
+
+  /** fresh ink glistens: stamp the finished glyph into the wet buffer once */
+  _stampWet(m) {
+    const s = ((m.snapSize * m.R) / m.snapR) * WET_SCALE;
+    this.wctx.drawImage(m.snap, m.cx * WET_SCALE - s / 2, m.cy * WET_SCALE - s / 2, s, s);
+    this.wtex.needsUpdate = true;
+    this._wetLife = 1;
+  }
+
+  /**
+   * Re-render the pane. A finished mark blits from its snapshot; a mark still
+   * materialising composites snapshot+mask+smoke; a mark with neither (only
+   * possible for one frame) replays from ops.
    */
   _repaint() {
     const ctx = this.ctx;
@@ -153,8 +260,10 @@ export class InkWriter {
       if (m.finished && m.snap) {
         const s = (m.snapSize * m.R) / m.snapR;
         ctx.drawImage(m.snap, m.cx - s / 2, m.cy - s / 2, s, s);
+      } else if (m.smoke) {
+        this._paintMaterialising(ctx, m);
       } else {
-        for (let i = 0; i < m.idx; i++) this._paint(ctx, m, m.glyph.ops[i], 1, false);
+        for (const op of m.glyph.ops) op.draw(ctx);
       }
       ctx.restore();
     }
@@ -166,35 +275,23 @@ export class InkWriter {
     this.elapsed += dt;
     const now = this.elapsed;
     this._fadeTick += dt;
+    this._inkTick += dt;
 
-    let dirty = false, dirtyFlush = false, repaint = false, removed = false;
+    let uploading = false, repaint = false, removed = false, anim = false;
 
     for (const m of this.marks) {
       if (!m.finished) {
+        /* materialise: progress is the reveal, not a stroke position */
         m.t += dt / m.dur;
-        const target = easeInOutSine(clamp(m.t, 0, 1)) * m.glyph.total;
-        while (m.done < target && m.idx < m.glyph.ops.length) {
-          const op = m.glyph.ops[m.idx];
-          this._paint(this.ctx, m, op, 1, false);
-          // Faint layers (haze, scratches, dust) skip the wet buffer: they
-          // contribute nothing to the gloss, and painting them three times
-          // over during a click-draw is pure cost.
-          if (!op.dryOnly) {
-            this._paint(this.wctx, m, op, WET_SCALE, true);
-            this._wetLife = 1;
-          }
-          // The snapshot accumulates alongside the pane, so finishing costs
-          // nothing extra — there is no re-render spike at stroke completion.
-          if (m.snap) this._paintSnap(m, op);
-          dirty = true;
-          if (op.head) m.headLocal = op.head;
-          m.done += op.w;
-          m.idx++;
-        }
-        if (m.idx >= m.glyph.ops.length && !m.finished) {
+        if (m.t >= 1) {
+          m.t = 1;
           m.finished = true;
           m.finishedAt = now;
-          dirtyFlush = true;
+          m.headLocal = null;
+          this._stampWet(m);
+          uploading = true;
+        } else {
+          anim = true;
         }
       } else {
         const naturalFade = m.finishedAt + m.hold;
@@ -210,22 +307,17 @@ export class InkWriter {
       if (this.marks[i].dead) { this.marks.splice(i, 1); removed = true; }
     }
 
-    /* Repaint once, and at most 24 Hz while marks fade. Do not rebuild the
-       pane twice a frame, or upload an empty texture indefinitely. */
-    if (removed || (repaint && this._fadeTick >= 1 / 24)) {
+    /* Repaint once per tick, capped while materialising so a full-canvas
+       texture upload does not run at an uncapped frame rate. Fades repaint at
+       24 Hz; removal and completion always flush. */
+    if (removed || uploading) {
+      this._repaint();
+    } else if (anim && this._inkTick >= 1 / ANIM_HZ) {
+      this._inkTick = 0;
+      this._repaint();
+    } else if (repaint && this._fadeTick >= 1 / 24) {
       this._fadeTick = 0;
       this._repaint();
-    } else if (dirty) {
-      /* Progressive drawing uploads the ink texture at most 30 Hz: a full
-         RGBA upload every frame during a click-draw is a large part of the
-         hitch on integrated GPUs. The stroke grows slowly enough that 30 Hz
-         is visually identical. Completion always flushes immediately. */
-      this._inkTick += dt;
-      if (this._inkTick >= 1 / 30 || dirtyFlush) {
-        this._inkTick = 0;
-        this.tex.needsUpdate = true;
-        this.revision++;
-      }
     }
 
     /* ---- wet sheen evaporates fast ----------------------------------- */
@@ -245,7 +337,7 @@ export class InkWriter {
       }
     }
 
-    /* ---- live write-head, for the glow behind the glass ---------------- */
+    /* ---- the ember behind the glass ------------------------------------ */
     const live = this.marks.find((m) => !m.finished && m.headLocal);
     this.head = live
       ? {
@@ -273,9 +365,9 @@ export class InkWriter {
     const m = {
       glyph, cx, cy, R,
       cs: R, sn: 0,
-      idx: 0, done: 0, t: 0,
+      idx: glyph.ops.length, done: glyph.total, t: 0,
       dur: dur ?? INK.drawSeconds,
-      headLocal: null,
+      headLocal: glyph.materialise?.ignition?.[0] ?? null,
       finished: false, finishedAt: 0,
       alpha: 1, dead: false,
       hold: opts.hold ?? INK.hold,
@@ -283,8 +375,14 @@ export class InkWriter {
       born: this.elapsed,
       retireAt: null,
       snap: null, snapCtx: null, snapSize: 0, snapR: R,
+      smoke: null, smokeSize: 0, maskCv: null, maskCtx: null,
+      maskImg: null, maskTh: null, scratch: null, scratchCtx: null,
     };
     this._makeSnap(m);
+    /* the whole glyph is rendered once: materialisation reveals it, so there
+       is no partial state to replay and nothing depends on op order */
+    for (const op of glyph.ops) this._paintSnap(m, op);
+    this._makeMaterialise(m);
     this.marks.push(m);
     this.revision++;
     return m;

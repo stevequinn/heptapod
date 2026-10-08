@@ -141,7 +141,7 @@ for (const g of glyphs.slice(0, 6)) {
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, CELL, CELL);
   ctx.save();
   ctx.translate(CELL / 2, CELL / 2);
-  ctx.scale(CELL * 0.40, CELL * 0.40);
+  ctx.scale(CELL * 0.40 * g.scale, CELL * 0.40 * g.scale);
   for (const op of g.ops) if (!op.dryOnly) op.draw(ctx);
   ctx.restore();
   const box = document.createElement('div');

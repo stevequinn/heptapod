@@ -61,11 +61,12 @@ export function renderProofSheet(count, { seed = 1, unwrap = false } = {}) {
     ctx.fillStyle = INK_BG;
     ctx.fillRect(0, 0, w, h);
 
-    /* the glyph, ring radius = 1 mapped to cell*0.34 */
+    /* the glyph, ring radius = 1 mapped to cell*0.34, times the glyph's own
+       size multiplier so the proof sheet shows the real circumference spread */
     const R = cell * 0.34;
     ctx.save();
     ctx.translate(w / 2, cell / 2);
-    ctx.scale(R, R);
+    ctx.scale(R * glyph.scale, R * glyph.scale);
     ctx.translate(0, 0);
     for (const op of glyph.ops) op.draw(ctx);
     ctx.restore();

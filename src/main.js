@@ -99,7 +99,7 @@ function requestGlyph(nx, ny) {
   chrome.twist((app.seed % 5) * 72);
 
   const glyph = makeRingGlyph(app.seed);
-  ink.add(glyph, nx * ink.size.x, ny * ink.size.y, R, INK.drawSeconds);
+  ink.add(glyph, nx * ink.size.x, ny * ink.size.y, R * glyph.scale, INK.drawSeconds);
   app.spawnTimer = SCENE.quiet;
 
   stage.fog.uniforms.uRipple.value.set(nx, 1 - ny, app.clock, 0.7);
