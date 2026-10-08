@@ -142,12 +142,6 @@ npm run deploy           # build, then upload dist/ to the `heptapod` project
 npm run preview:cf       # serve dist/ through wrangler exactly as Pages will
 ```
 
-The custom domain is an account-level binding rather than committed config:
-
-```bash
-npx wrangler pages domain add heptapod.dotdoing.com --project-name heptapod
-```
-
 ## Attribution
 
 The film imagery and the logogram designs belong to Paramount Pictures / the
