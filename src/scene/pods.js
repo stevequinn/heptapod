@@ -16,6 +16,13 @@
    do, and a screen-space veil of the fog's own noise — sampled at a parallax
    rate between the camera and the creatures — lets mist pass in front of
    them, so they sit *in* the volume rather than being pasted over it.
+
+   The limbs articulate. Each digit swells at a few joint stations along its
+   length with a dark crease across every swelling, and the palm carries a
+   knuckle row where the digits root — the creases ride in the texture's
+   colour channel (the shader reads the body from alpha, the joints from
+   colour), where a fold reads as more material in the light's path and so
+   darkens toward the core.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import * as THREE from 'three';
@@ -49,24 +56,75 @@ export function makeHeptapodTexture(seed, blurPx) {
   g.closePath();
   g.fill();
 
+  /* The knuckle row. Five soft shadow arcs sit where the digits root into
+     the palm — the one place the hand reads as a hand rather than a bundle
+     of ribbons. Drawn dark into the colour channel (the shader reads the
+     body from its alpha and the joints from its colour), and blurred with
+     everything else, so the row is felt rather than ruled. The stroke is
+     near-black and sized against the blur: a thin grey line would smear
+     to nothing before it reached the sheet. */
+  g.strokeStyle = 'rgb(0, 0, 0)';
+  g.lineWidth = Math.max(6, blurPx * 0.6);
+  g.lineCap = 'round';
+  for (const [rx, ry] of [[190, 196], [206, 221], [240, 230], [276, 230], [311, 205]]) {
+    g.beginPath();
+    g.moveTo(rx - 9, ry + 4);
+    g.quadraticCurveTo(rx, ry + 15, rx + 9, ry + 4);
+    g.stroke();
+  }
+
   /**
    * One digit, as a closed tapered ribbon around a quadratic centre-line.
    * Outlined rather than stroked: a stroked path with round caps turns every
    * fingertip into a round dot, which is the giveaway of a drawn hand.
+   *
+   * The ribbon carries its own knuckles: the width swells at a few joint
+   * stations along the digit and a dark crease is drawn across each one,
+   * into the colour channel. The swell and the shadow together are what
+   * read as articulation — either alone looks like either a stripe or a
+   * lump. A small pad just before the tip echoes the ink's tip bulbs, so
+   * the creatures and their script share a vocabulary.
    */
   function digit(x0, y0, cx, cy, x1, y1, w0, w1) {
-    const left = [], right = [];
-    for (let i = 0; i <= 32; i++) {
-      const t = i / 32, q = 1 - t;
-      const x = q * q * x0 + 2 * q * t * cx + t * t * x1;
-      const y = q * q * y0 + 2 * q * t * cy + t * t * y1;
+    const joints = [];
+    for (let k = 0; k < 3; k++) joints.push(0.27 + k * 0.25 + rr(rng, 0, 0.06));
+    const bulge = rr(rng, 0.34, 0.46);
+    const pad = rr(rng, 0.16, 0.26);
+    const SIG = 0.032;
+    const widthAt = (t) => {
+      let j = 0;
+      for (const jt of joints) j += Math.exp(-Math.pow((t - jt) / SIG, 2));
+      j += pad * Math.exp(-Math.pow((t - 0.93) / 0.05, 2));
+      return lerp(w0, w1, Math.pow(t, 0.84))
+           * (1 + 0.09 * Math.sin(t * 15 + seed * 0.07))
+           * (1 + bulge * j);
+    };
+    const point = (t) => {
+      const q = 1 - t;
+      return [
+        q * q * x0 + 2 * q * t * cx + t * t * x1,
+        q * q * y0 + 2 * q * t * cy + t * t * y1,
+      ];
+    };
+    const normal = (t) => {
+      const q = 1 - t;
       const dx = 2 * q * (cx - x0) + 2 * t * (x1 - cx);
       const dy = 2 * q * (cy - y0) + 2 * t * (y1 - cy);
       const len = Math.hypot(dx, dy) || 1;
-      const uneven = 1 + 0.09 * Math.sin(t * 15 + seed * 0.07);
-      const w = lerp(w0, w1, Math.pow(t, 0.84)) * uneven;
-      left.push([x - (dy / len) * w, y + (dx / len) * w]);
-      right.push([x + (dy / len) * w, y - (dx / len) * w]);
+      return [dy / len, dx / len];
+    };
+
+    const left = [], right = [];
+    // fine enough to carry the joint swellings: two gaussian widths span
+    // several samples each, so the outline rounds over every knuckle
+    const N = 96;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const [x, y] = point(t);
+      const [nx, ny] = normal(t);
+      const w = widthAt(t);
+      left.push([x - nx * w, y - ny * w]);
+      right.push([x + nx * w, y + ny * w]);
     }
     g.beginPath();
     g.moveTo(left[0][0], left[0][1]);
@@ -74,6 +132,23 @@ export function makeHeptapodTexture(seed, blurPx) {
     for (const p of right.reverse()) g.lineTo(p[0], p[1]);
     g.closePath();
     g.fill();
+
+    // the creases: short near-black bands across each swelling, kept inside
+    // the ribbon so they never extend the silhouette on their own, and
+    // floored against the blur so they survive it as shadow rather than
+    // smear to nothing
+    g.strokeStyle = 'rgb(0, 0, 0)';
+    for (const jt of joints) {
+      const [px, py] = point(jt);
+      const [nx, ny] = normal(jt);
+      const w = widthAt(jt);
+      g.lineWidth = Math.max(2.5, w * 0.45, blurPx * 0.55);
+      const reach = w * 0.90;
+      g.beginPath();
+      g.moveTo(px - nx * reach, py - ny * reach);
+      g.lineTo(px + nx * reach, py + ny * reach);
+      g.stroke();
+    }
   }
 
   const wob = () => rr(rng, -10, 10);
@@ -139,11 +214,18 @@ uniform float uAspect;
 uniform vec2 uCam;
 
 void main(){
-  float a = texture2D(tPod, vUv).a;
-  if (a < 0.004) discard;
+  vec4 pod = texture2D(tPod, vUv);
+  float aRaw = pod.a;
+  if (aRaw < 0.004) discard;
   // Atmospheric perspective, heavily. Even the near creature is a soft, low
   // contrast mass behind milky glass, never a hard black cut-out.
-  a = smoothstep(0.02, 0.42, a);
+  float a = smoothstep(0.02, 0.42, aRaw);
+  /* The joints live in the sheet's colour channel: the body is white, the
+     knuckle creases and the palm's knuckle row are dark. The sheet uploads
+     un-premultiplied, so the mask survives the soft alpha fringes; the
+     alpha gate keeps its edges quiet. The joints are applied further down,
+     after the body colour is built — see the fold note there. */
+  float joint = smoothstep(0.68, 0.30, pod.r) * smoothstep(0.05, 0.30, aRaw);
 
   const float S = 0.0625;
 
@@ -161,6 +243,20 @@ void main(){
      them is visible is lit from above — the upper reaches of a limb carry
      more scattered light than the digits drooping below it. */
   col += vec3(0.026, 0.031, 0.032) * smoothstep(0.30, 0.92, vScreen.y);
+
+  /* and the folds take their shadow after the light. The flat body is
+     already at the core tone wherever the alpha is full, so a crease that
+     only pulled toward core would vanish against it — a fold is two
+     thicknesses of the body overlapping and shadowing itself, and it has
+     to read below the core to read at all. The crown of the swelling is
+     the opposite case — surface stretched thin over the joint — and the
+     blur's shoulder around each crease marks exactly where that thin
+     crown sits, so the pair reads as relief even through heavy fog. */
+  vec3 fold = core * 0.45;
+  col = mix(col, fold, joint * 0.9);
+  float crown = smoothstep(0.68, 0.78, pod.r) * (1.0 - smoothstep(0.88, 0.97, pod.r));
+  col = mix(col, flank, crown * 0.45);
+  a *= 1.0 + joint * 0.16;
 
   /* Interior mottling: density variations inside the body, a little finer
      than the fog's own shells so the texture belongs to the creature and
@@ -185,7 +281,7 @@ void main(){
   a *= 1.0 - vAmt;
   col = mix(col, uFog, vAmt * 0.45);
 
-  gl_FragColor = vec4(col, a * uOpacity * (1.0 - uDepth * 0.22) * 0.38);
+  gl_FragColor = vec4(col, a * uOpacity * (1.0 - uDepth * 0.22) * mix(0.44, 0.38, uDepth));
 }
 `;
 
