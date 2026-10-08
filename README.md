@@ -65,14 +65,15 @@ wave travelling back toward the ignition points.
 `microSplatter` — is what the review page drives directly:
 
 ```bash
-npm run reference        # fetch the 38 reference frames (film assets, not committed)
 npm run dev
 # http://localhost:3000/compare
 ```
 
-The same tool is built and served at `/compare` on the deployed site; a copy
-without the frames shows the generator alone, with the refs-dependent views
-disabled.
+The 38 frames ship with the site — web-size copies in `public/refs/`, so the
+deployed tool is the full comparison, not a degraded one. `npm run reference`
+additionally fetches the 3300px originals into a gitignored directory for
+inspecting the ink at full detail; it prints the one-liner that regenerates
+the committed set from them.
 
 `refs` (all 38 frames at once) is the view to judge against; `interleave` mixes
 them with generated glyphs; `threshold` applies the same hard cut the reference
@@ -117,6 +118,9 @@ tools/
   reference/compare.html   the calibration surface, served at /compare
   probe-ink.html           measurement against the reference ranges
   probe-ca.mjs             re-runs the rule-selection analysis
+public/
+  refs/                    the 38 reference frames, web size, shipped to /compare
+  _headers, _redirects     Cloudflare Pages conventions
 ```
 
 Three.js is used for the WebGL pipeline, not the scene graph — the graph exists
@@ -148,6 +152,7 @@ npx wrangler pages domain add heptapod.dotdoing.com --project-name heptapod
 
 The film imagery and the logogram designs belong to Paramount Pictures / the
 *Arrival* production. Wolfram's notebooks are under the terms in that
-repository's `COPYING.md`. Everything here is original code.
+repository's `COPYING.md`, and the frames under `public/refs/` are web-size
+copies of the images Wolfram isolated there. Everything else is original code.
 
 Working on the code itself? See [AGENTS.md](AGENTS.md).

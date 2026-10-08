@@ -15,7 +15,7 @@ only. No framework, no build step beyond Vite.
 | `npm run build` | bundle to `dist/`; run it before every commit |
 | `npm run preview` | serve `dist/` on the LAN (also port 3000 — one server at a time) |
 | `npm run deploy` / `npm run preview:cf` | Cloudflare Pages via wrangler |
-| `npm run reference` | fetch the 38 reference frames into a gitignored directory |
+| `npm run reference` | fetch the 3300px originals into a gitignored directory (the site's copies live in `public/refs/`) |
 | `npm run probe:ca` | re-run the automaton rule-selection analysis |
 
 Dev tools: `/compare` (style calibration — `tools/reference/compare.html`, a
@@ -118,7 +118,10 @@ quiet ring. Those two sentences catch most regressions by eye.
 ## Repo hygiene
 
 - Do not commit user media or scratch files (`ink.png`, `diagnal-line.*`),
-  fetched reference frames (`tools/reference/logograms/`), or `dist/`.
+  the fetched 3300px reference originals (`tools/reference/logograms/`), or
+  `dist/`. The web-size review set in `public/refs/` IS committed on purpose
+  — it ships to `/compare`; regenerate it from the originals with the
+  one-liner `npm run reference` prints.
 - Keep the README succinct and current; longer rationale belongs in commit
   messages or here.
 - `index.bak.html` and the older tracked screenshots (`screenshot*.png`,

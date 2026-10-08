@@ -109,7 +109,7 @@ let NAMES = [];
    to the generated-only view when they are absent. */
 let refsAvailable = true;
 try {
-  const m = await fetch('/tools/reference/logograms/manifest.json').then((r) => r.json());
+  const m = await fetch('/refs/manifest.json').then((r) => r.json());
   NAMES = m.names.map((n) => n.replace(/\.jpe?g$/i, ''));
 } catch {
   refsAvailable = false;
@@ -308,38 +308,26 @@ function fillRef(name, cellNode, placeholder, done) {
     done && done();
   };
   if (imgs.has(name)) { paint(imgs.get(name)); return; }
-  /* Prefer a downscaled copy if one is lying beside the original. The frames
-     are 3300px and the page shows them at a few hundred, so decoding the full
-     one is thirty-odd megabytes of work to produce the same picture. Absent
-     them, the originals are used and everything still works.
-
-       for f in logograms/*.jpg; do magick "$f" -resize 760x760 "logograms/s-$(basename $f)"; done
-  */
-  const small = new Image();
-  small.onload = () => {
-    imgs.set(name, small);
+  /* One web-size copy of each frame is committed in public/refs, so dev, the
+     build and the deployed site all read the same file. The 3300px originals
+     fetched by `npm run reference` stay local; this page does not need them. */
+  const im = new Image();
+  im.onload = () => {
+    imgs.set(name, im);
     /* paint on load, not on decode(): decode() can stay pending forever for a
        detached image in some browsers, and a review page that never shows its
        references is worse than one that shows them a frame late */
-    paint(small);
+    paint(im);
   };
-  small.onerror = () => {
-    const im = new Image();
-    im.onload = () => {
-      imgs.set(name, im);
-      paint(im);
-    };
-    im.onerror = () => {
-      const m = document.createElement('div');
-      m.className = 'missing';
-      m.textContent = 'missing';
-      cellNode.textContent = '';
-      cellNode.appendChild(m);
-      done && done();
-    };
-    im.src = '/tools/reference/logograms/' + name + '.jpg';
+  im.onerror = () => {
+    const m = document.createElement('div');
+    m.className = 'missing';
+    m.textContent = 'missing';
+    cellNode.textContent = '';
+    cellNode.appendChild(m);
+    done && done();
   };
-  small.src = '/tools/reference/logograms/s-' + name + '.jpg';
+  im.src = '/refs/' + name + '.jpg';
 }
 
 /* ---- controls ---------------------------------------------------------- */

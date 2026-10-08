@@ -9,9 +9,12 @@
    the detail that matters (stroke weight, how the ink feathers, what the
    offshoots look like).
 
-   They are deliberately NOT committed here. They are film assets, they are
-   large, and they already live in a public repository. So this fetches them on
-   demand into tools/reference/logograms/, which is gitignored.
+   The 3300px originals are NOT committed: they are large and already live in
+   a public repository, so this fetches them on demand into
+   tools/reference/logograms/, which is gitignored. What the review site
+   actually shows are web-size copies, committed under public/refs/ so dev,
+   the build and the deployed page all read the same files; the closing
+   message below has the one-liner that regenerates them.
 
      npm run reference
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -68,14 +71,14 @@ async function main() {
     JSON.stringify({ repo: REPO, dir: 'ScriptLogoJpegs', names }, null, 1));
 
   console.log(`\n\n${names.length} files in ${OUT}  (${got} fetched, ${skipped} already present, ${failed} failed)`);
-  console.log(`\nnow open:  http://localhost:3000/tools/reference/compare.html`);
-  console.log(`\nthe frames are 3300px and the review page shows them at a few hundred,`);
-  console.log(`so decoding the full ones is slow. If you have ImageMagick, downscales`);
-  console.log(`beside the originals are picked up automatically and are much faster:`);
+  console.log(`\nnow open:  http://localhost:3000/compare`);
+  console.log(`\nthe site's review set is committed at public/refs (web size). To refresh`);
+  console.log(`it from these originals, with ImageMagick:`);
   console.log(`  for f in tools/reference/logograms/*.jpg; do`);
   console.log(`    case "$f" in */s-*) continue;; esac`);
-  console.log(`    magick "$f" -resize 760x760 "tools/reference/logograms/s-$(basename "$f")"`);
-  console.log(`  done\n`);
+  console.log(`    magick "$f" -resize 1100x1100 -quality 82 "public/refs/$(basename "$f")"`);
+  console.log(`  done`);
+  console.log(`  cp tools/reference/logograms/manifest.json public/refs/manifest.json\n`);
 }
 
 main().catch((e) => { console.error('\nfetch failed:', e.message); process.exit(1); });
