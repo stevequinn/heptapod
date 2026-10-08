@@ -5,14 +5,20 @@
 
 export const INK = {
   /** Inscriptions held at full strength. One more may exist at a time, in the
-   *  middle of its fade — a new glyph does not have to wait for a previous
-   *  one to finish dissolving before it can be written, so `marks.length` can
+   *  middle of its dissolve — a new glyph does not have to wait for a previous
+   *  one to finish leaving before it can be written, so `marks.length` can
    *  reach `max + 1` briefly. */
   max: 4,
-  /** how long a finished inscription is held before it fades on its own */
+  /** how long a finished inscription is held before it starts to dissolve */
   hold: 10.0,
-  /** the fade itself */
-  fade: 3.0,
+  /**
+   * The dissolve itself. Deliberately slower than the inscription: the ink
+   * comes apart the way it formed, so leaving should read as weather clearing
+   * rather than as a switch being thrown.
+   */
+  dispel: 6.0,
+  /** a forced retire (the pane is full) leaves by the same route, quickly */
+  retire: 2.4,
   /** the wet-sheen buffer runs at this fraction of the ink buffer */
   wetScale: 1 / 3,
   /** ink buffer pixel budget; keeps huge displays from melting */

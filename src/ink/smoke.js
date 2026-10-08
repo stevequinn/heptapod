@@ -100,12 +100,15 @@ let CLOUD = null;
 /**
  * One tileable sheet of ink dropped in water.
  *
- * Built from a strongly domain-warped turbulence field: a main *billow* term
- * for the soft folded mass of a spreading cloud, plus a finer second pass
- * for the wisps streaming off it. The frequencies are integers on purpose —
- * fbm2 wraps at whole units, so integer coordinates make the tile seamless,
- * and they stay low because at this tile size higher octaves read as static
- * rather than as ink.
+ * A single broad field, gently warped, gated by a second low-frequency field:
+ * clear water with a few large folded masses drifting in it, not a tinted
+ * disc. Every field is one octave. Earlier multi-octave sheets carried detail
+ * down at the pixel scale, and once two enlarged copies of one were laid over
+ * each other the mark read as gravel rather than ink; the writer now crops
+ * and zooms this sheet instead of asking it to hold every scale at once.
+ *
+ * The frequencies are integers on purpose — fbm2 wraps at whole units, so
+ * integer coordinates make the tile seamless.
  */
 export function cloudTile() {
   if (CLOUD) return CLOUD;
@@ -114,38 +117,56 @@ export function cloudTile() {
   const cv = document.createElement('canvas');
   cv.width = cv.height = S;
   const g = cv.getContext('2d');
-  const img = g.createImageData(S, S);
 
-  const w1 = fbm2(rng, 2);
-  const w2 = fbm2(rng, 2);
-  const bill = fbm2(rng, 3);
-  const fine = fbm2(rng, 3);
+  const wx = fbm2(rng, 1);
+  const wy = fbm2(rng, 1);
+  const bill = fbm2(rng, 1);
+  const dens = fbm2(rng, 1);
 
+  const a = new Float32Array(S * S);
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
       const u = x / S, v = y / S;
 
-      /* strong warp: the whole character of the sheet is in these two
-         fields displacing everything downstream of them */
-      const a1 = w1(u, v);
-      const a2 = w2(u + 5.1, v - 2.3);
+      /* the same gentle warp on everything, so the gate and the mass are
+         folded through each other rather than merely multiplied */
+      const ax = wx(u, v) - 0.5;
+      const ay = wy(u + 5.1, v - 2.3) - 0.5;
 
-      /* the cloud mass */
-      const n = bill(u + a1 * 0.9, v + a2 * 0.9);
-      const main = Math.pow(clamp01(n * 2.05 - 0.72), 1.75);
+      const n = bill(u + ax * 0.9, v + ay * 0.9);
+      const d = dens(u * 0.62 + ax * 0.7 + 1.7, v * 0.62 + ay * 0.7 - 4.2);
+      const gate = smoothstep(0.28, 0.60, d);
+      const mass = smoothstep(0.44, 0.60, n);
 
-      /* the wisps: a finer pass through the same warp, faint and sparse */
-      const m = fine(u * 2 + a1 * 1.4 + 3.3, v * 2 + a2 * 1.4 - 1.1);
-      const wisps = Math.pow(clamp01(m * 2.0 - 0.78), 2.1) * 0.40;
-
-      const a = clamp01(main + wisps);
-
-      const i = (y * S + x) * 4;
-      img.data[i] = 7;
-      img.data[i + 1] = 9;
-      img.data[i + 2] = 11;
-      img.data[i + 3] = (a * 255) | 0;
+      a[y * S + x] = clamp01(mass * (0.40 + 0.80 * gate));
     }
+  }
+
+  /* Two 1-2-1 passes. The sheet is always drawn enlarged, so all this removes
+     is pixel gravel that would otherwise read as static. */
+  let src = a;
+  const tmp = new Float32Array(S * S);
+  const at = (x, y) => ((((y % S) + S) % S) * S) + (((x % S) + S) % S);
+  for (let p = 0; p < 2; p++) {
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        tmp[y * S + x] = (src[at(x - 1, y)] + 2 * src[y * S + x] + src[at(x + 1, y)]) / 4;
+      }
+    }
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        src[y * S + x] = (tmp[at(x, y - 1)] + 2 * tmp[y * S + x] + tmp[at(x, y + 1)]) / 4;
+      }
+    }
+  }
+
+  const img = g.createImageData(S, S);
+  for (let i = 0; i < S * S; i++) {
+    const o = i * 4;
+    img.data[o] = 7;
+    img.data[o + 1] = 9;
+    img.data[o + 2] = 11;
+    img.data[o + 3] = (clamp01(src[i]) * 255) | 0;
   }
   g.putImageData(img, 0, 0);
   CLOUD = cv;

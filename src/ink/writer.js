@@ -15,7 +15,10 @@
    the ink appears where the cloud has reached and nowhere else. There is no
    head, no stroke order, and no direction of travel.
 
-   Ink has an explicit life: materialise, hold, fade, drop.
+   Ink has an explicit life: materialise, hold, dissolve, drop. The dissolve
+   is the materialisation unwound — the reveal field runs backwards, so the
+   ink comes apart the way it formed, without the cloud, which belongs only
+   to arrival.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import * as THREE from 'three';
@@ -51,7 +54,6 @@ export class InkWriter {
     this.head = null;
     this.elapsed = 0;
     this._wetLife = 0;
-    this._fadeTick = 0;
     this._inkTick = 0;
     /** bumped whenever the ink changes, so dependent views can invalidate */
     this.revision = 0;
@@ -171,34 +173,37 @@ export class InkWriter {
     m.smoke = smoke;
     m.smokeSize = size;
 
-    /* ink clouds: the shared turbulent sheet, cut into a few soft discs so
-       the cloud clings to the glyph instead of fogging the whole pane. Two
-       rotated copies are intersected first: multiplying one field by itself
-       leaves the irregular streamers and holes of a real cloud, where a
-       single field masked by a vignette is just a grey puffball. The
-       vignette only trims the square corners. */
+    /* ink clouds: the shared turbulent sheet, drawn as a couple of soft discs
+       so the cloud clings to the glyph instead of fogging the whole pane.
+       Each layer takes its own crop of the sheet, enlarged — the same water
+       seen closer in — and one is stretched along its own axis, which is what
+       turns the round billow into a drifting sheet. Intersecting two copies
+       was tried and rejected: multiplying one field by a rotated copy of
+       itself leaves speckle, and a cloud of speckle is exactly what real ink
+       in water never looks like. The vignette only trims the square corners. */
     const lrng = mulberry32((m.glyph.seed ^ 0x85ebca6b) >>> 0);
     const tile = cloudTile();
+    const N = tile.width;
     const layers = [];
-    for (let i = 0; i < 3; i++) {
-      const L = Math.max(48, Math.ceil(R * rr(lrng, 2.2, 3.0)));
+    for (let i = 0; i < 2; i++) {
+      const L = Math.max(48, Math.ceil(R * rr(lrng, 2.3, 2.9)));
+      const zoom = rr(lrng, 1.7, 2.4);
+      const src = N / zoom;
+      const ox = rr(lrng, 0, N - src);
+      const oy = rr(lrng, 0, N - src);
       const sp = document.createElement('canvas');
       sp.width = sp.height = L;
       const g2 = sp.getContext('2d');
-      g2.drawImage(tile, 0, 0, L, L);
-      g2.globalCompositeOperation = 'destination-in';
       g2.save();
       g2.translate(L / 2, L / 2);
-      g2.rotate(rr(lrng, 0.6, 2.6));
-      const sc = rr(lrng, 1.1, 1.5);
-      g2.scale(sc, sc);
-      g2.translate(-L / 2, -L / 2);
-      g2.drawImage(tile, 0, 0, L, L);
+      g2.rotate(rr(lrng, 0, TAU));
+      g2.scale(rr(lrng, 1.0, 1.28), rr(lrng, 0.78, 1.0));
+      g2.drawImage(tile, ox, oy, src, src, -L / 2, -L / 2, L, L);
       g2.restore();
       g2.globalCompositeOperation = 'destination-in';
       const vg = g2.createRadialGradient(L / 2, L / 2, 0, L / 2, L / 2, L / 2);
       vg.addColorStop(0, 'rgba(0,0,0,1)');
-      vg.addColorStop(0.70, 'rgba(0,0,0,0.90)');
+      vg.addColorStop(0.72, 'rgba(0,0,0,0.86)');
       vg.addColorStop(1, 'rgba(0,0,0,0)');
       g2.fillStyle = vg;
       g2.fillRect(0, 0, L, L);
@@ -206,11 +211,11 @@ export class InkWriter {
         cv: sp,
         base: L,
         rot: rr(lrng, 0, TAU),
-        spin: rr(lrng, -0.55, 0.55),
-        dx: rr(lrng, -0.18, 0.18),
-        dy: rr(lrng, -0.18, 0.18),
-        alpha: rr(lrng, 0.40, 0.65),
-        grow: rr(lrng, 0.25, 0.50),
+        spin: rr(lrng, -0.40, 0.40),
+        dx: rr(lrng, -0.16, 0.16),
+        dy: rr(lrng, -0.16, 0.02),
+        alpha: rr(lrng, 0.36, 0.52),
+        grow: rr(lrng, 0.35, 0.60),
       });
     }
     m.clouds = layers;
@@ -248,42 +253,34 @@ export class InkWriter {
     m.scratchCtx = sc.getContext('2d');
   }
 
-  /** composite a materialising mark: ink cloud under, partially revealed ink over */
-  _paintMaterialising(ctx, m) {
-    const p = easeInOutSine(clamp01(m.t));
-
-    /* the cloud fades in over the first quarter, billows up, then thins,
-       drifts and turns as the ink condenses; ink in water spreads outward
-       and dilutes, so the discs grow while their opacity falls */
-    const smokeA = smoothstep(0, 0.25, p) * Math.pow(1 - p, 0.9);
-    if (smokeA > 0.02) {
-      if (m.smoke) {
-        const s = m.smokeSize * (0.85 + p * 0.45);
-        ctx.save();
-        ctx.globalAlpha = smokeA * 0.55;
-        ctx.drawImage(m.smoke, m.cx - s / 2, m.cy - s / 2, s, s);
-        ctx.restore();
-      }
-      for (const L of m.clouds) {
-        const s = L.base * (1 + p * L.grow);
-        ctx.save();
-        ctx.translate(m.cx + L.dx * p * m.R, m.cy + L.dy * p * m.R);
-        ctx.rotate(L.rot + L.spin * p);
-        ctx.globalAlpha = smokeA * L.alpha;
-        ctx.drawImage(L.cv, -s / 2, -s / 2, s, s);
-        ctx.restore();
-      }
+  /**
+   * The inscription cloud: soft puffs at the ignition points, then the
+   * drifting discs. `p` is the cloud's own progress — it billows and drifts
+   * while the ink condenses — and `smokeA` is how strongly it is present at
+   * this moment of the inscription.
+   */
+  _paintCloud(ctx, m, p, smokeA) {
+    if (smokeA <= 0.02) return;
+    if (m.smoke) {
+      const s = m.smokeSize * (0.85 + p * 0.45);
+      ctx.save();
+      ctx.globalAlpha = smokeA * 0.55;
+      ctx.drawImage(m.smoke, m.cx - s / 2, m.cy - s / 2, s, s);
+      ctx.restore();
     }
-
-    /* the ink proper condenses out of the cloud once it is up */
-    const rp = clamp01((p - 0.12) / 0.88);
-    const data = m.maskImg.data, th = m.maskTh;
-    for (let k = 0; k < th.length; k++) {
-      const a = smoothstep(th[k], th[k] + 0.20, rp);
-      const o = k * 4;
-      data[o] = data[o + 1] = data[o + 2] = 0;
-      data[o + 3] = (a * 255) | 0;
+    for (const L of m.clouds) {
+      const s = L.base * (1 + p * L.grow);
+      ctx.save();
+      ctx.translate(m.cx + L.dx * p * m.R, m.cy + L.dy * p * m.R);
+      ctx.rotate(L.rot + L.spin * p);
+      ctx.globalAlpha = smokeA * L.alpha;
+      ctx.drawImage(L.cv, -s / 2, -s / 2, s, s);
+      ctx.restore();
     }
+  }
+
+  /** composite the snapshot through the reveal mask and stamp it on the pane */
+  _blitMasked(ctx, m) {
     m.maskCtx.putImageData(m.maskImg, 0, 0);
 
     const sc = m.scratchCtx;
@@ -298,6 +295,53 @@ export class InkWriter {
     ctx.drawImage(m.scratch, m.cx - s / 2, m.cy - s / 2, s, s);
   }
 
+  /** composite a materialising mark: ink cloud under, partially revealed ink over */
+  _paintMaterialising(ctx, m) {
+    const p = easeInOutSine(clamp01(m.t));
+
+    /* the cloud fades in over the first quarter, billows up, then thins,
+       drifts and turns as the ink condenses; ink in water spreads outward
+       and dilutes, so the discs grow while their opacity falls */
+    this._paintCloud(ctx, m, p, smoothstep(0, 0.25, p) * Math.pow(1 - p, 0.9));
+
+    /* the ink proper condenses out of the cloud once it is up */
+    const rp = clamp01((p - 0.12) / 0.88);
+    const data = m.maskImg.data, th = m.maskTh;
+    for (let k = 0; k < th.length; k++) {
+      const a = smoothstep(th[k], th[k] + 0.20, rp);
+      const o = k * 4;
+      data[o] = data[o + 1] = data[o + 2] = 0;
+      data[o + 3] = (a * 255) | 0;
+    }
+    this._blitMasked(ctx, m);
+  }
+
+  /**
+   * The reverse inscription. The reveal field runs backwards — a ragged wave
+   * from wherever the ink condensed last back toward the ignition points,
+   * with the field's own noise kept, so no two patches leave together — and
+   * a gentle overall paling rides along, so the last core dims rather than
+   * being cut off. No smoke: the cloud belongs to the ink's arrival and does
+   * not return for the departure. Slow on purpose — dissolving should feel
+   * like weather, not like a switch.
+   */
+  _paintDissolving(ctx, m) {
+    const q = clamp01(m.q);
+
+    /* a pixel with threshold th appeared near rp = th and is gone by
+       q = 1 - 0.9*th: the dissolve unwinds the condensation in order */
+    const data = m.maskImg.data, th = m.maskTh;
+    for (let k = 0; k < th.length; k++) {
+      const hi = 1 - th[k] * 0.9;
+      const gone = smoothstep(hi - 0.20, hi, q);
+      const a = (1 - gone) * (1 - 0.35 * q);
+      const o = k * 4;
+      data[o] = data[o + 1] = data[o + 2] = 0;
+      data[o + 3] = (a * 255) | 0;
+    }
+    this._blitMasked(ctx, m);
+  }
+
   /** fresh ink glistens: stamp the finished glyph into the wet buffer once */
   _stampWet(m) {
     const s = ((m.snapSize * m.R) / m.snapR) * WET_SCALE;
@@ -308,8 +352,9 @@ export class InkWriter {
 
   /**
    * Re-render the pane. A finished mark blits from its snapshot; a mark still
-   * materialising composites snapshot+mask+smoke; a mark with neither (only
-   * possible for one frame) replays from ops.
+   * materialising composites snapshot+mask+smoke; a dissolving mark runs the
+   * same composite backwards; a mark with neither (only possible for one
+   * frame) replays from ops.
    */
   _repaint() {
     const ctx = this.ctx;
@@ -318,9 +363,11 @@ export class InkWriter {
     for (const m of this.marks) {
       if (m.alpha <= 0.002) continue;
       ctx.save();
-      // per-mark alpha makes the fade a true dissolve, not a flat wash
+      // per-mark alpha makes forced retires a true dissolve, not a flat wash
       ctx.globalAlpha = m.alpha;
-      if (m.finished && m.snap) {
+      if (m.dissolving) {
+        this._paintDissolving(ctx, m);
+      } else if (m.finished && m.snap) {
         const s = (m.snapSize * m.R) / m.snapR;
         ctx.drawImage(m.snap, m.cx - s / 2, m.cy - s / 2, s, s);
       } else if (m.smoke) {
@@ -337,10 +384,9 @@ export class InkWriter {
   update(dt) {
     this.elapsed += dt;
     const now = this.elapsed;
-    this._fadeTick += dt;
     this._inkTick += dt;
 
-    let uploading = false, repaint = false, removed = false, anim = false;
+    let uploading = false, removed = false, anim = false;
 
     for (const m of this.marks) {
       if (!m.finished) {
@@ -356,13 +402,20 @@ export class InkWriter {
         } else {
           anim = true;
         }
+      } else if (m.dissolving) {
+        /* the reverse inscription: the reveal field unwinds; the cloud does
+           not come back — it belongs to arrival */
+        m.q += dt / m.dispelDur;
+        if (m.q >= 1) { m.q = 1; m.dead = true; }
+        anim = true;
       } else {
-        const naturalFade = m.finishedAt + m.hold;
-        const fadeAt = Math.min(naturalFade, m.retireAt ?? Infinity);
-        const duration = m.retireAt == null ? m.fade : 1.35;
-        const want = clamp(1 - (now - fadeAt) / duration, 0, 1);
-        if (Math.abs(want - m.alpha) > 0.001) { m.alpha = want; repaint = true; }
-        if (want <= 0.001) m.dead = true;
+        const fadeAt = Math.min(m.finishedAt + m.hold, m.retireAt ?? Infinity);
+        if (now >= fadeAt) {
+          m.dissolving = true;
+          m.q = 0;
+          m.dispelDur = m.retireAt == null ? m.dispel : Math.min(m.dispel, INK.retire);
+          anim = true;
+        }
       }
     }
 
@@ -370,16 +423,13 @@ export class InkWriter {
       if (this.marks[i].dead) { this.marks.splice(i, 1); removed = true; }
     }
 
-    /* Repaint once per tick, capped while materialising so a full-canvas
-       texture upload does not run at an uncapped frame rate. Fades repaint at
-       24 Hz; removal and completion always flush. */
+    /* Repaint once per tick, capped while a mark is animating so a full-canvas
+       texture upload does not run at an uncapped frame rate. Removal and
+       completion always flush. */
     if (removed || uploading) {
       this._repaint();
     } else if (anim && this._inkTick >= 1 / ANIM_HZ) {
       this._inkTick = 0;
-      this._repaint();
-    } else if (repaint && this._fadeTick >= 1 / 24) {
-      this._fadeTick = 0;
       this._repaint();
     }
 
@@ -432,9 +482,10 @@ export class InkWriter {
       dur: dur ?? INK.drawSeconds,
       headLocal: glyph.materialise?.ignition?.[0] ?? null,
       finished: false, finishedAt: 0,
+      dissolving: false, q: 0, dispelDur: 0,
       alpha: 1, dead: false,
       hold: opts.hold ?? INK.hold,
-      fade: opts.fade ?? INK.fade,
+      dispel: opts.dispel ?? INK.dispel,
       born: this.elapsed,
       retireAt: null,
       snap: null, snapCtx: null, snapSize: 0, snapR: R,
@@ -455,7 +506,8 @@ export class InkWriter {
   /** the mark most recently added and still visible, for the unwrap view */
   latest() {
     for (let i = this.marks.length - 1; i >= 0; i--) {
-      if (this.marks[i].alpha > 0.05) return this.marks[i];
+      const m = this.marks[i];
+      if (m.alpha > 0.05 && !m.dissolving) return m;
     }
     return null;
   }

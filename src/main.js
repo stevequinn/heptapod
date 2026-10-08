@@ -281,7 +281,8 @@ function report() {
     }
   } catch { /* canvas not readable; skip */ }
   const marks = ink.marks
-    .map((m) => `${m.idx}/${m.glyph.ops.length} t=${m.t.toFixed(2)} a=${m.alpha.toFixed(2)}`)
+    .map((m) => `${m.idx}/${m.glyph.ops.length} t=${m.t.toFixed(2)}` +
+      (m.dissolving ? ` q=${m.q.toFixed(2)}` : ` a=${m.alpha.toFixed(2)}`))
     .join('\n         ');
   chrome.setDebug(
     `frame ${app.frame}  clock ${app.clock.toFixed(1)}s\n` +
