@@ -22,6 +22,19 @@ export const INK = {
 };
 
 /**
+ * The room tone.
+ *
+ * One looping track. Browsers will not start audio without a gesture, so it
+ * is armed rather than played and starts on the visitor's first click, tap or
+ * key — see ui/sound.js. The preference is remembered; a visitor who turns it
+ * off never hears it again until they turn it back on.
+ */
+export const SOUND = {
+  /** playback volume, 0..1 */
+  volume: 0.32,
+};
+
+/**
  * Style calibration.
  *
  * The generator is a layered ink process — ring, accumulated stroke clusters,

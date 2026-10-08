@@ -18,8 +18,15 @@
 </header>
 
 <footer id="ui">
-  <span id="hint-move"><b class="k">Move</b>They follow &nbsp;·&nbsp; <b class="k">Click</b>Ask for a glyph</span>
-  <span id="hint-keys"><b class="k">Space</b>Again &nbsp;·&nbsp; <b class="k">U</b>Unwrap &nbsp;·&nbsp; <b class="k">C</b>Clear &nbsp;·&nbsp; <b class="k">H</b>Hide</span>
+  <span id="hint-fine"><b class="k">Move</b>They follow &nbsp;·&nbsp; <b class="k">Click</b>Ask for a glyph</span>
+  <span id="hint-coarse">Tap anywhere &nbsp;·&nbsp; Ask for a glyph</span>
+  <nav id="actions" aria-label="Controls">
+    <button id="act-glyph" type="button"><b class="k">Space</b>Ask</button>
+    <button id="act-unwrap" type="button"><b class="k">U</b>Unwrap</button>
+    <button id="act-clear" type="button"><b class="k">C</b>Clear</button>
+    <button id="act-hide" type="button"><b class="k">H</b>Hide</button>
+    <button id="act-sound" type="button" aria-pressed="true"><b class="k">M</b><span id="sound-label">Sound on</span></button>
+  </nav>
 </footer>
 
 <!-- Two layers: ink is multiplied into the scene so it reads as being on the

@@ -28,6 +28,7 @@ import { UnwrapView } from './unwrap/panel.js';
 import { Stage } from './scene/stage.js';
 import { Chrome } from './ui/chrome.js';
 import { createPointer, createKeys, queryFlags } from './ui/input.js';
+import { createSound } from './ui/sound.js';
 
 const chrome = new Chrome();
 window.addEventListener('error', (ev) => chrome.fatal(ev.error || ev.message));
@@ -124,28 +125,72 @@ function spawnGlyph() {
   requestGlyph(Math.random() * 0.11 + 0.35, Math.random() * 0.11 + 0.44);
 }
 
-/* ── input bindings ────────────────────────────────────────────────────── */
+/* ── actions ───────────────────────────────────────────────────────────── *
+   One definition per action, shared by the keyboard and the on-screen
+   buttons. The buttons are the only way to reach these on a touch screen, so
+   they are the primary UI and the key badges are the shortcut hint. */
 
-const keys = createKeys();
-
-window.addEventListener('pointerdown', (e) => {
-  if (pointer.press(e)) requestGlyph(pointer.state.tx, 1 - pointer.state.ty);
-});
-
-keys.on('space', () => {
+function askGlyph() {
   requestGlyph(pointer.state.inside ? pointer.state.tx : 0.42,
                pointer.state.inside ? 1 - pointer.state.ty : 0.5);
-});
-keys.on('c', () => { ink.clear(); app.spawnTimer = 2; unwrap.invalidate(); });
-keys.on('h', () => chrome.toggleHidden());
-keys.on('u', () => {
-  unwrap.set(!unwrap.on);
+}
+
+function clearInk() {
+  ink.clear();
+  app.spawnTimer = 2;
+  unwrap.invalidate();
+}
+
+function setUnwrap(on) {
+  unwrap.set(on);
   chrome.setMode(
-    unwrap.on
+    on
       ? 'Twelve&nbsp;sections&nbsp;&nbsp;·&nbsp;&nbsp;Unwrapped'
       : 'Heptapod&nbsp;B&nbsp;&nbsp;·&nbsp;&nbsp;Containment',
   );
+}
+
+const sound = createSound();
+
+function paintSound() {
+  const btn = document.getElementById('act-sound');
+  btn.setAttribute('aria-pressed', String(sound.enabled));
+  btn.classList.toggle('off', !sound.enabled);
+  btn.querySelector('#sound-label').textContent = sound.enabled ? 'Sound on' : 'Sound off';
+}
+
+function toggleSound() {
+  sound.setEnabled(!sound.enabled);
+  paintSound();
+}
+
+for (const [id, fn] of [
+  ['act-glyph', askGlyph],
+  ['act-unwrap', () => setUnwrap(!unwrap.on)],
+  ['act-clear', clearInk],
+  ['act-hide', () => chrome.toggleHidden()],
+  ['act-sound', toggleSound],
+]) {
+  document.getElementById(id)?.addEventListener('click', fn);
+}
+paintSound();
+
+const keys = createKeys();
+keys.on('space', askGlyph);
+keys.on('c', clearInk);
+keys.on('h', () => chrome.toggleHidden());
+keys.on('u', () => setUnwrap(!unwrap.on));
+keys.on('m', toggleSound);
+
+/* Sound cannot start before the visitor has interacted with the page, so the
+   first gesture of any kind arms it. The controls live inside #ui: a press
+   there is a control press, not a request for a glyph. */
+window.addEventListener('pointerdown', (e) => {
+  sound.start();
+  if (e.target instanceof Element && e.target.closest('#ui')) return;
+  if (pointer.press(e)) requestGlyph(pointer.state.tx, 1 - pointer.state.ty);
 });
+window.addEventListener('keydown', () => sound.start());
 /* ── the frame ─────────────────────────────────────────────────────────── */
 
 function step(dt, draw = true) {
@@ -259,8 +304,7 @@ ink.add(opening,
   Math.min(ink.size.x * 0.31, ink.size.y * 0.255), 3.1);
 
 if (flags.unwrap) {
-  unwrap.set(true);
-  chrome.setMode('Twelve&nbsp;sections&nbsp;&nbsp;·&nbsp;&nbsp;Unwrapped');
+  setUnwrap(true);
 }
 
 if (flags.at) {
@@ -295,5 +339,5 @@ if (flags.warm > 0) {
 
 /* expose a little of the internals, so the scene can be driven from a console
    or a screenshot harness without reaching into module scope */
-window.arrival = { app, ink, stage, unwrap, requestGlyph, THREE, makeRingGlyph };
+window.arrival = { app, ink, stage, unwrap, sound, requestGlyph, THREE, makeRingGlyph };
 }

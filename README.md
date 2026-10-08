@@ -299,6 +299,9 @@ src/
   ui/
     chrome.js      reticle, hint text, boot veil
     input.js       pointer easing, keys, query flags
+    sound.js       the looping room tone, and its remembered on/off
+  audio/
+    background-sound.m4a   the track, started on the first interaction
 ```
 
 A glyph is a list of weighted `ops` drawn progressively, so the ink appears to
@@ -325,6 +328,17 @@ a dev tool, served by `npm run dev`, not a build entry.
 | `U` | unwrap into twelve sections |
 | `C` | clear the pane |
 | `H` | hide the chrome |
+| `M` | sound on/off |
+
+Every action is also a button in the footer, with its key shown as a badge on
+pointer devices. On a touch screen there is no keyboard, so the buttons are
+the controls: the badges drop away, the targets grow to a thumb, and **Hide**
+is left out — with no keyboard there would be no way to bring the chrome back.
+The two hint lines are likewise swapped: "Move — they follow" is a mouse
+sentence and is replaced by "Tap anywhere".
+
+Sound starts on the first interaction (browser policy allows nothing sooner),
+loops, and remembers the visitor's choice.
 
 ## Query flags
 

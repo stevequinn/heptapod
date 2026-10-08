@@ -111,6 +111,29 @@ body {
   font-size: 9.5px; letter-spacing: 0.1em;
 }
 
+/* The controls are real buttons, not just key hints: on a touch screen there
+   is no keyboard, and on a desktop the key badge in front of each label
+   says the shortcut without a second line of text. */
+#hint-coarse { display: none; }
+#actions {
+  display: flex; align-items: baseline; gap: 4px 18px;
+  pointer-events: auto;
+}
+/* hidden chrome must not keep invisible buttons in the hit path */
+#ui:not(.visible) #actions { pointer-events: none; }
+#actions button {
+  font: inherit;
+  font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-fg);
+  background: none; border: 0; padding: 6px 2px;
+  cursor: none;
+  transition: color 0.25s ease, opacity 0.25s ease;
+}
+#actions button:hover, #actions button:focus-visible { color: var(--ink-fg-bright); }
+#actions button .k { margin-right: 6px; }
+#actions button.off { color: var(--ink-rule); }
+#actions button.off .k { border-color: currentColor; }
+
 /* ── unwrap overlay ────────────────────────────────────────────────────── */
 
 /* The analytic view. Two layers: rules and section numbers above, ink below.
@@ -166,6 +189,12 @@ body {
 @media (pointer: coarse) {
   body { cursor: auto; }
   #reticle { display: none; }
+  /* no keyboard to hint at; bigger targets for a thumb */
+  #actions .k { display: none; }
+  #actions button { padding: 13px 10px; font-size: 10px; letter-spacing: 0.12em; }
+  #actions { gap: 2px 6px; }
+  #hint-fine { display: none; }
+  #hint-coarse { display: inline; }
 }
 @media (prefers-reduced-motion: reduce) {
   #reticle .ring, #reticle .arc, #unwrap { transition: none; }
@@ -174,10 +203,16 @@ body {
 @media (max-width: 620px) {
   #title { padding: 18px 20px 0; font-size: 9px; }
   #title span:last-child { display: none; }
+  #hint-fine { display: none; }
+  #hint-coarse { display: inline; }
   #ui {
-    padding: 0 20px 20px;
-    gap: 8px; flex-direction: column; align-items: flex-start;
+    padding: 0 18px 16px;
+    gap: 10px; flex-direction: column; align-items: flex-start;
     font-size: 9px; letter-spacing: 0.09em;
   }
-  #ui span:last-child { text-align: left; }
+  #actions { flex-wrap: wrap; width: 100%; }
+  #actions button { padding: 13px 10px; }
+  /* Hiding the chrome is keyboard-reversible on a desktop; without a keyboard
+     nothing would bring it back, so the action is not offered here. */
+  #act-hide { display: none; }
 }
