@@ -89,9 +89,9 @@ export function makeRingGlyph(seed, style = {}) {
 
   /* ---- the ring path --------------------------------------------------- */
   /* Compass-guided, so still clearly a circle: three octaves of radial
-     wobble plus a little ellipticity, scaled by STYLE.ringWobble. The old
-     version was so round it read as vector; this is a hand-drawn circle, not
-     a scribble. */
+     wobble, scaled by STYLE.ringWobble. The old version was so round it read
+     as vector; this is a hand-drawn circle, not a scribble. Ellipticity is
+     off in config — the references are circles. */
   const N = GLYPH.pathSegments;
   const [wLo, wMid, wHi] = GLYPH.wobble;
   const wb = S.ringWobble;

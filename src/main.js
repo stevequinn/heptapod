@@ -68,6 +68,10 @@ const app = {
   spawnTimer: 7,
   last: performance.now() / 1000,
   frame: 0,
+  /** the opening inscription: a beat after load, unless the visitor asks first */
+  openingAt: 3.0,
+  openingDone: false,
+  openingCancelled: false,
 };
 
 /* ── sizing ─────────────────────────────────────────────────────────────── */
@@ -96,6 +100,9 @@ setTimeout(() => cloudTile(), 1800);
  * top of it — nothing is erased first.
  */
 function requestGlyph(nx, ny) {
+  /* whoever asks — the visitor, the idle scene — has pre-empted the opening
+     inscription */
+  app.openingCancelled = true;
   const R = Math.min(ink.size.x * 0.28, ink.size.y * 0.225);
   const mx = (R * 1.28) / ink.size.x, my = (R * 1.28) / ink.size.y;
   nx = clamp(nx, mx, 1 - mx);
@@ -125,6 +132,19 @@ function spawnGlyph() {
   requestGlyph(Math.random() * 0.11 + 0.35, Math.random() * 0.11 + 0.44);
 }
 
+/**
+ * The piece's first inscription, in a fixed composition — left of the near
+ * hand, nearly half the viewport tall. It is written by `step` a beat after
+ * load rather than at construction, so the window opens empty and quiet;
+ * any request from the visitor before that beat takes its place.
+ */
+function writeOpening() {
+  const opening = makeRingGlyph(20240515);
+  ink.add(opening,
+    ink.size.x * 0.39, ink.size.y * 0.49,
+    Math.min(ink.size.x * 0.31, ink.size.y * 0.255), 3.1);
+}
+
 /* ── actions ───────────────────────────────────────────────────────────── *
    One definition per action, shared by the keyboard and the on-screen
    buttons. On a touch screen the buttons are the way to reach Clear and
@@ -137,6 +157,7 @@ function askGlyph() {
 }
 
 function clearInk() {
+  app.openingCancelled = true;
   ink.clear();
   app.spawnTimer = 2;
   unwrap.invalidate();
@@ -209,6 +230,17 @@ function step(dt, draw = true) {
     spawnGlyph();
     const [lo, hi] = busy > 0.15 ? SCENE.busyCadence : SCENE.idleCadence;
     app.spawnTimer = lerp(lo, hi, Math.random());
+  }
+
+  /* The opening inscription arrives on its own beat — and only if nobody has
+     asked for anything yet. */
+  if (!app.openingDone) {
+    if (app.openingCancelled) {
+      app.openingDone = true;
+    } else if (app.clock >= app.openingAt) {
+      app.openingDone = true;
+      writeOpening();
+    }
   }
 
   ink.update(dt);
@@ -298,12 +330,13 @@ function report() {
 
 /* ── boot ──────────────────────────────────────────────────────────────── */
 
-/* Open with one inscription in a fixed composition: left of the near hand,
-   nearly half the viewport tall. */
-const opening = makeRingGlyph(20240515);
-ink.add(opening,
-  ink.size.x * 0.39, ink.size.y * 0.49,
-  Math.min(ink.size.x * 0.31, ink.size.y * 0.255), 3.1);
+/* A warmed frame is a fixed composition and the opening inscription is part
+   of it, so the warm-up writes it immediately instead of waiting out the
+   beat. A normal load leaves it to `step`. */
+if (flags.warm > 0) {
+  writeOpening();
+  app.openingDone = true;
+}
 
 if (flags.unwrap) {
   setUnwrap(true);

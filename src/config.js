@@ -38,6 +38,8 @@ export const INK = {
 export const SOUND = {
   /** playback volume, 0..1 */
   volume: 0.32,
+  /** how long after the visitor's first gesture the room tone begins */
+  delay: 3.0,
 };
 
 /**
@@ -127,8 +129,10 @@ export const GLYPH = {
    *  Hand-drawn, but compass-guided: the reference circles are clearly
    *  circles. Scaled by STYLE.ringWobble. */
   wobble: [0.055, 0.028, 0.013],
-  /** how elliptic the ring is allowed to be */
-  eccentricity: [0.015, 0.06],
+  /** how elliptic the ring is allowed to be. Off: the reference circles are
+   *  round, and even a few percent of ellipticity reads as an oblong glyph
+   *  rather than as a hand-drawn circle. */
+  eccentricity: [0, 0],
 
   /** where the ring lifts off the glass, leaving a break. Most frames are a
    *  closed circle, so this is a chance per glyph and per break. */

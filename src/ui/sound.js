@@ -1,10 +1,13 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    Room tone.
 
-   One looping track, started on the visitor's first gesture — browsers will
-   not begin audio otherwise — and stoppable from the chrome. The choice is
-   remembered, so someone who turns it off is not asked again by the next
-   visit.
+   One looping track. Browsers will not begin audio without a gesture, so it
+   is armed by the visitor's first click, tap or key — and then held back for
+   a moment (SOUND.delay), so the room does not start underneath the very
+   first thing the visitor does. It pauses whenever the page goes away — a
+   minimised window, a locked phone — and returns when the page does. The
+   choice is remembered, so someone who turns it off is not asked again by
+   the next visit.
 
    The module owns no UI: it exposes `start` for the first gesture and
    `setEnabled` for the sound button, and main.js keeps the button's label in
@@ -28,25 +31,48 @@ export function createSound() {
     enabled = localStorage.getItem(PREF) !== 'off';
   } catch { /* private mode: sound defaults on, just not remembered */ }
 
-  let started = false;
+  /** idle → waiting (the first-visit delay) → on. Only ever moves forward. */
+  let phase = 'idle';
+  let timer = 0;
 
   const play = () => {
+    if (!enabled || document.hidden) return;
     el.play().catch(() => {
-      /* an autoplay policy refusing a gesture-less play is not an error we
-         can act on; the next gesture runs start() again */
-      started = false;
+      /* Refused — usually a resume the browser wants a fresh gesture for.
+         Nothing to do here: `start` retries on the next input, and a retry
+         that lands inside a gesture is what the policy wants anyway. */
     });
   };
+
+  // a locked phone or a minimised window takes the room tone with it; both
+  // are `visibilitychange` cases
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      el.pause();
+    } else if (phase === 'on' && enabled) {
+      play();
+    }
+  });
 
   return {
     get enabled() { return enabled; },
     get el() { return el; },
 
-    /** call from the first pointer or key event; no-op once running or off */
+    /** call from every pointer or key event; only the first one arms */
     start() {
-      if (!enabled || started) return;
-      started = true;
-      play();
+      if (!enabled) return;
+      if (phase === 'idle') {
+        phase = 'waiting';
+        timer = setTimeout(() => {
+          timer = 0;
+          phase = 'on';
+          play();
+        }, SOUND.delay * 1000);
+      } else if (phase === 'on' && el.paused) {
+        /* still silent — a refused resume, or the delay elapsed while the
+           page was away. This event is a gesture, so take it. */
+        play();
+      }
     },
 
     setEnabled(on) {
@@ -55,7 +81,8 @@ export function createSound() {
         localStorage.setItem(PREF, on ? 'on' : 'off');
       } catch { /* ignore */ }
       if (on) {
-        started = true;
+        /* an explicit press, so no first-visit delay */
+        phase = 'on';
         play();
       } else {
         el.pause();
