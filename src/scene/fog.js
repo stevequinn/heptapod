@@ -7,12 +7,13 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import * as THREE from 'three';
-import { GLSL_NOISE, QUAD_VERT } from '../lib/glsl.js';
+import { QUAD_VERT } from '../lib/glsl.js';
 
 export const FOG_MID = new THREE.Color(0.165, 0.234, 0.250);
 
 export function makeFog(quadGeo) {
   const uniforms = {
+    tNoise: { value: null },
     uTime: { value: 0 },
     uCam: { value: new THREE.Vector2() },
     uAspect: { value: 1 },
@@ -30,10 +31,10 @@ export function makeFog(quadGeo) {
     fragmentShader: /* glsl */`
 precision highp float;
 varying vec2 vUv;
+uniform sampler2D tNoise;
 uniform float uTime, uAspect;
 uniform vec2 uCam;
 uniform vec4 uRipple, uGlow;
-${GLSL_NOISE}
 
 void main(){
   vec2 uv = vUv;
@@ -45,11 +46,15 @@ void main(){
   vec3 cHaze = vec3(0.390, 0.474, 0.488);
 
   // three parallaxing noise shells, so the haze has depth rather than being a
-  // flat wash that the camera merely slides across
+  // flat wash that the camera merely slides across. S maps one unit of the
+  // old procedural fbm into the baked sheet's feature scale, so the fields
+  // sit and move exactly as they did — see scene/noise-tex.js for why this
+  // is a texture fetch and not a shader fbm.
+  const float S = 0.0625;
   float t = uTime * 0.012;
-  float s0 = fbm(p * 0.55 + uCam * 0.055 + vec2(t * 0.70, -t * 0.40), 4);
-  float s1 = fbm(p * 0.97 + uCam * 0.155 + vec2(t * 1.20, -t * 0.70) + 13.0, 4);
-  float s2 = fbm(p * 1.39 + uCam * 0.255 + vec2(t * 1.70, -t * 1.00) + 27.0, 3);
+  float s0 = texture2D(tNoise, (p * 0.55 + uCam * 0.055 + vec2(t * 0.70, -t * 0.40)) * S).r;
+  float s1 = texture2D(tNoise, (p * 0.97 + uCam * 0.155 + vec2(t * 1.20, -t * 0.70)) * S).g;
+  float s2 = texture2D(tNoise, (p * 1.39 + uCam * 0.255 + vec2(t * 1.70, -t * 1.00)) * S).b;
 
   // a broad bright band through the middle of the window
   float band = exp(-pow((uv.y - 0.69) * 1.90, 2.0));

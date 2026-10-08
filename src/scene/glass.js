@@ -8,13 +8,14 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import * as THREE from 'three';
-import { GLSL_NOISE, QUAD_VERT } from '../lib/glsl.js';
+import { QUAD_VERT } from '../lib/glsl.js';
 
 export function makeGlass() {
   const uniforms = {
     tBg: { value: null },
     tInk: { value: null },
     tWet: { value: null },
+    tNoise: { value: null },
     uRes: { value: new THREE.Vector2() },
     uTime: { value: 0 },
     uMouse: { value: new THREE.Vector2() },
@@ -31,11 +32,13 @@ export function makeGlass() {
     fragmentShader: /* glsl */`
 precision highp float;
 varying vec2 vUv;
-uniform sampler2D tBg, tInk, tWet;
+uniform sampler2D tBg, tInk, tWet, tNoise;
 uniform vec2 uRes, uMouse;
 uniform float uTime, uAspect, uHeat;
 uniform vec4 uRipple;
-${GLSL_NOISE}
+
+/** per-cell randomness from the baked white-noise channel */
+float rnd(vec2 p){ return texture2D(tNoise, (p + 0.5) / 32.0).a; }
 
 float inkA(vec2 uv){ return texture2D(tInk, uv).a; }
 
@@ -59,15 +62,18 @@ void main(){
   vec2 px = 1.0 / uRes;
 
   /* ---- old-glass low frequency warp --------------------------------- */
-  float w1 = fbm(uv * vec2(1.6, 1.1) + vec2(uTime * 0.008, 0.0), 2);
-  float w2 = fbm(uv * vec2(1.3, 1.7) - vec2(0.0, uTime * 0.006), 2);
+  // baked noise (scene/noise-tex.js): S maps the old procedural fbm's units
+  // onto the sheet's features, so scale and drift are unchanged
+  const float S = 0.0625;
+  float w1 = texture2D(tNoise, (uv * vec2(1.6, 1.1) + vec2(uTime * 0.008, 0.0)) * S).r;
+  float w2 = texture2D(tNoise, (uv * vec2(1.3, 1.7) - vec2(0.0, uTime * 0.006)) * S).b;
   vec2 warp = (vec2(w1, w2) - 0.5) * 0.0028;
 
   /* ---- frost / condensation ------------------------------------------ */
   vec2 edgeD = abs(uv - 0.5) * 2.0;
   float edge = smoothstep(0.30, 1.02, max(edgeD.x, edgeD.y));
-  float f1 = fbm(uv * vec2(5.1, 3.0) + vec2(uTime * 0.010, uTime * 0.006), 4);
-  float f2 = fbm(uv * vec2(7.5, 4.4) + vec2(-uTime * 0.014, uTime * 0.009), 3);
+  float f1 = texture2D(tNoise, (uv * vec2(5.1, 3.0) + vec2(uTime * 0.010, uTime * 0.006)) * S).g;
+  float f2 = texture2D(tNoise, (uv * vec2(7.5, 4.4) + vec2(-uTime * 0.014, uTime * 0.009)) * S).b;
   float frost = f1 * 0.68 + f2 * 0.32;
   frost = smoothstep(0.30, 0.86, frost + edge * 0.52);
 
@@ -76,9 +82,9 @@ void main(){
   /* ---- condensation droplets ----------------------------------------- */
   vec2 dp = uv * asp * 34.0;
   vec2 cell = floor(dp), dloc = fract(dp);
-  float have = step(0.86, hash12(cell + 19.3));
-  vec2 dc = vec2(0.28 + 0.44 * hash12(cell + 1.7), 0.28 + 0.44 * hash12(cell + 8.2));
-  float dRad = (0.09 + 0.17 * hash12(cell)) * have;
+  float have = step(0.86, rnd(cell + 19.3));
+  vec2 dc = vec2(0.28 + 0.44 * rnd(cell + 1.7), 0.28 + 0.44 * rnd(cell + 8.2));
+  float dRad = (0.09 + 0.17 * rnd(cell)) * have;
   float drop = smoothstep(dRad, dRad * 0.80, length(dloc - dc)) * have;
   vec2 dropOff = normalize(dloc - dc + 1e-5) * drop * 0.010;
   dropOff.x /= uAspect;
@@ -215,6 +221,7 @@ export function makeFinal() {
   const uniforms = {
     tComp: { value: null },
     tBloom: { value: null },
+    tNoise: { value: null },
     uRes: { value: new THREE.Vector2() },
     uTime: { value: 0 },
   };
@@ -227,10 +234,9 @@ export function makeFinal() {
     fragmentShader: /* glsl */`
 precision highp float;
 varying vec2 vUv;
-uniform sampler2D tComp, tBloom;
+uniform sampler2D tComp, tBloom, tNoise;
 uniform vec2 uRes;
 uniform float uTime;
-${GLSL_NOISE}
 void main(){
   vec2 uv = vUv;
   vec2 d = uv - 0.5;
@@ -253,7 +259,10 @@ void main(){
   col = (col - 0.5) * 1.075 + 0.5 + 0.004;
 
   col *= 1.0 - smoothstep(0.20, 0.86, r2) * 0.72;
-  col += (hash12(uv * uRes + fract(uTime) * 719.7) - 0.5) * 0.014;
+  // film grain: the baked white-noise channel, stepped once per frame so it
+  // dances rather than slides
+  float g = texture2D(tNoise, uv * (uRes / 256.0) + floor(uTime * 60.0) * vec2(97.3, 51.7)).a;
+  col += (g - 0.5) * 0.014;
 
   gl_FragColor = vec4(max(col, 0.0), 1.0);
 }

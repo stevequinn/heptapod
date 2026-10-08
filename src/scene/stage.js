@@ -11,6 +11,7 @@ import { SCENE } from '../config.js';
 import { makeFog, FOG_MID } from './fog.js';
 import { makePods } from './pods.js';
 import { makeGlass, makeBloom, makeFinal } from './glass.js';
+import { noiseTexture } from './noise-tex.js';
 
 export class Stage {
   constructor(mount) {
@@ -57,6 +58,14 @@ export class Stage {
     this.bloom = bloom;
     const final = makeFinal();
     this.final = final;
+
+    /* one baked noise sheet serves the fog shells, the frost and the grain;
+       it replaces the old per-shader noise, which banded on phone-precision
+       floats — see scene/noise-tex.js */
+    const noise = noiseTexture();
+    fog.uniforms.tNoise.value = noise;
+    glass.uniforms.tNoise.value = noise;
+    final.uniforms.tNoise.value = noise;
 
     /* ---- targets ------------------------------------------------------ */
     // Byte targets, not half-float: nothing in this chain needs HDR
