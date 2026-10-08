@@ -71,7 +71,9 @@ void main(){
 
   /* ---- frost / condensation ------------------------------------------ */
   vec2 edgeD = abs(uv - 0.5) * 2.0;
-  float edge = smoothstep(0.30, 1.02, max(edgeD.x, edgeD.y));
+  // radial, not rectangular: the frost thickens toward the far corners of the
+  // glass rather than along the four screen edges, so it never draws a frame
+  float edge = smoothstep(0.55, 1.35, length(edgeD));
   float f1 = texture2D(tNoise, (uv * vec2(5.1, 3.0) + vec2(uTime * 0.010, uTime * 0.006)) * S).g;
   float f2 = texture2D(tNoise, (uv * vec2(7.5, 4.4) + vec2(-uTime * 0.014, uTime * 0.009)) * S).b;
   float frost = f1 * 0.68 + f2 * 0.32;
@@ -98,12 +100,12 @@ void main(){
 
   /* ---- room reflections on the glass --------------------------------- */
   // long, soft vertical smears of the overhead lights; broad and very dim,
-  // never a distinct blob
+  // never a distinct blob. No ceiling band: anything pinned to the top edge
+  // of the screen puts a lid on the volume.
   float band = smoothstep(0.02, 0.30, uv.y) * (1.0 - smoothstep(0.72, 1.04, uv.y));
   float lamp1 = exp(-pow((uv.x - 0.155) / 0.075, 2.0)) * band;
   float lamp2 = exp(-pow((uv.x - 0.845) / 0.055, 2.0)) * band * 0.7;
-  float ceil = smoothstep(0.62, 1.0, uv.y) * 0.055;
-  col += vec3(0.030, 0.032, 0.030) * (lamp1 + lamp2 + ceil);
+  col += vec3(0.030, 0.032, 0.030) * (lamp1 + lamp2);
 
   /* ---- ink ------------------------------------------------------------ */
   float ia = inkA(uv);
@@ -157,11 +159,15 @@ void main(){
   float dm = length((uv - uMouse) * asp);
   col += exp(-pow(dm / 0.070, 2.0)) * (0.022 + uHeat * 0.048) * vec3(0.42, 0.52, 0.56);
 
-  /* ---- window frame falloff ------------------------------------------- */
-  float frameDark = smoothstep(0.55, 1.15, max(edgeD.x, edgeD.y * 1.02));
-  col *= 1.0 - frameDark * 0.62;
-  float inner = smoothstep(1.16, 0.92, max(edgeD.x, edgeD.y));
-  col *= 0.55 + 0.45 * inner;
+  /* ---- distance falloff ------------------------------------------------ */
+  /* Round and very soft, where there used to be a rectangular window frame.
+     max(x, y) has a crease along every diagonal to a corner, and with the
+     frame multiply beneath it the pane read as the inside of a box — the
+     faint light lines in the corners. length() is smooth in every direction:
+     the fog simply cools toward the edges of the view, and the room has no
+     walls. */
+  float rv = length(edgeD);
+  col *= 1.0 - 0.38 * smoothstep(0.72, 1.55, rv);
 
   gl_FragColor = vec4(max(col, 0.0), 1.0);
 }

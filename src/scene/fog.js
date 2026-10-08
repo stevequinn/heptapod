@@ -66,9 +66,10 @@ void main(){
   col += (wisp - 0.5) * vec3(0.14, 0.16, 0.16) * (0.35 + band * 0.9);
   col *= 0.55 + 0.75 * smoothstep(0.05, 0.85, wisp + band * 0.35);
 
-  // the dark sill along the bottom of the observation chamber
-  col *= 1.0 - 0.53 * (1.0 - smoothstep(0.025, 0.09, uv.y));
-  col *= 1.0 - 0.17 * smoothstep(0.995, 1.0, uv.y);
+  /* No sill, no lid. The dark band that used to sit on the bottom edge (and
+     the thin one at the top) pinned the volume to the screen and made the
+     room read as a bounded chamber. The depth mix above is the whole floor
+     now: the fog thickens downward without ever meeting an edge. */
 
   if (uRipple.w > 0.001) {
     float d = length((uv - uRipple.xy) * asp);
